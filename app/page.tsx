@@ -12,6 +12,7 @@ import {
   BarChart3,
   Loader2
 } from 'lucide-react';
+import Image from 'next/image';
 
 export default function InventoryLanding() {
   const router = useRouter();
@@ -35,7 +36,6 @@ export default function InventoryLanding() {
           } else if (profile.role === 'encargado') {
             router.push('/Encargado');
           } else if (profile.role === 'espectador') {
-            // REDIRECCIÓN A ESPECTADOR CORREGIDA
             router.push('/Espectador');
           } else {
             setCheckingAuth(false);
@@ -65,8 +65,13 @@ export default function InventoryLanding() {
       <nav className="fixed top-0 w-full z-50 border-b border-white/5 bg-[#050505]/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-amber-200 to-amber-500 rounded-lg flex items-center justify-center shadow-[0_0_20px_rgba(251,191,36,0.2)]">
-              <Package className="text-black w-6 h-6" />
+            {/* ← LOGO CAMBIADO AQUÍ */}
+            <div className="w-10 h-10 relative">
+              <img 
+                src="/logo.png" 
+                alt="INV-CORE Logo" 
+                className="w-full h-full object-contain"
+              />
             </div>
             <span className="text-xl font-medium tracking-tight font-serif italic">INV-CORE</span>
           </div>
@@ -88,7 +93,7 @@ export default function InventoryLanding() {
               onClick={() => router.push('/login')}
               className="bg-white text-black px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-amber-100 transition-all duration-300"
             >
-              Resgristrate
+              Regístrate
             </button>
           </div>
         </div>
