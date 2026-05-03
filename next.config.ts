@@ -1,13 +1,17 @@
 import type { NextConfig } from "next";
 
-const nextConfig = {
+const nextConfig: NextConfig = {
   images: {
-    domains: ['drive.google.com'],
     remotePatterns: [
       {
         protocol: 'https',
         hostname: 'drive.google.com',
         pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'osotakxhfdtixghcrlvv.supabase.co',
+        pathname: '/storage/v1/object/public/**',
       },
     ],
   },
