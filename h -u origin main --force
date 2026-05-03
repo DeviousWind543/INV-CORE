@@ -1,0 +1,38 @@
+[33mcommit 6cb0d1e96b77e21a75be554602a5122c7082f91d[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: DeviousWind543 <98923520+DeviousWind543@users.noreply.github.com>
+Date:   Sat May 2 21:21:37 2026 -0500
+
+    Primer commit - INV-CORE funcionando local (sin credenciales)
+
+.gitignore
+app/Encargado/page.tsx
+app/Espectador/page.tsx
+app/admin/dashboard/page.tsx
+app/api/auth/callback/route.ts
+app/api/auth/drive/callback/route.ts
+app/api/auth/drive/refresh/route.ts
+app/api/auth/drive/route.ts
+app/api/drive/history/route.ts
+app/api/drive/route.ts
+app/api/image-proxy/route.ts
+app/api/upload/check/route.ts
+app/api/upload/pdf/route.ts
+app/api/upload/refresh/route.ts
+app/api/upload/route.ts
+app/globals.css
+app/layout.tsx
+app/login/page.tsx
+app/page.tsx
+app/register/page.tsx
+google-drive-key.json
+lib/driveAuth.ts
+lib/driveClient.ts
+lib/driveTokenManager.ts
+lib/supabase.ts
+lib/supabaseAdmin.ts
+next.config.ts
+package-lock.json
+package.json
+public/banner 2026_Mesa de trabajo 1.png
+public/cabecera.png
+tailwind.config.ts
