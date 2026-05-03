@@ -5,10 +5,27 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:ignore-lint": "NEXT_PUBLIC_IGNORE_ESLINT=true next build",
+    "build:mobile": "node scripts/build-mobile.js",
+    "cap:sync": "npx cap sync android",
+    "cap:open": "npx cap open android",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/keyboard": "^8.0.3",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
+    "@capacitor/toast": "^8.0.1",
     "@supabase/supabase-js": "^2.45.4",
     "framer-motion": "^11.18.2",
     "googleapis": "^144.0.0",
@@ -19,9 +36,11 @@
     "next": "^16.2.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "recharts": "^2.15.4"
+    "recharts": "^2.15.4",
+    "use-resize-observer": "^9.1.0"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

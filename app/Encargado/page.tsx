@@ -4,11 +4,12 @@ import { useEffect, useState, createContext, useContext, ReactNode } from 'react
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
-  LayoutDashboard, Package, ShieldCheck,
-  Plus, X, MapPin, RefreshCcw, Landmark, Receipt, Trash2, Edit3, Search, Menu, Printer, Camera, EyeOff, Upload, Loader2, LogOut, Clock, Download, FileText, CheckCircle, AlertCircle, Info, AlertTriangle, Trash
+  LayoutDashboard, Package, Users, ShieldCheck,
+  Plus, X, MapPin, RefreshCcw, Landmark, Receipt, Trash2, Edit3, Search, Menu, Printer, Camera, Eye, EyeOff, Link, Upload, Loader2, LogOut, Clock, Download, FileText, CheckCircle, AlertCircle, Info, AlertTriangle, Trash
 } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
+import ImageViewer from '@/components/ImageViewer';
 
 // ======================== SISTEMA DE TOASTS ========================
 type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -190,7 +191,7 @@ function startAutoRefresh(callback?: (success: boolean, message?: string) => voi
   return intervalId;
 }
 
-// ======================== COMPONENTE PRINCIPAL PARA ENCARGADO ========================
+// ======================== COMPONENTE PRINCIPAL ========================
 const CATEGORIAS_CONFIG: any = {
   "Útiles Escolares": "Activo",
   "Material Didáctico": "Activo",
@@ -211,6 +212,7 @@ export default function EncargadoDashboardPage() {
   const [activeTab, setActiveTab] = useState('Panel');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [items, setItems] = useState<any[]>([]);
+  const [usuarios, setUsuarios] = useState<any[]>([]);
   const [ubicaciones, setUbicaciones] = useState<any[]>([]);
   const [historyFiles, setHistoryFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -220,6 +222,7 @@ export default function EncargadoDashboardPage() {
   const [adminProfile, setAdminProfile] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [now, setNow] = useState(new Date());
   const [ubicacionEditando, setUbicacionEditando] = useState<any>(null);
   const [nuevaUbicacion, setNuevaUbicacion] = useState('');
@@ -229,12 +232,57 @@ export default function EncargadoDashboardPage() {
   const [driveConnected, setDriveConnected] = useState(false);
   const [driveChecking, setDriveChecking] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [countedActivos, setCountedActivos] = useState(0);
+  const [countedPasivos, setCountedPasivos] = useState(0);
+  const [countedUsuarios, setCountedUsuarios] = useState(0);
   const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void }>({
     isOpen: false,
     title: '',
     message: '',
     onConfirm: () => {},
   });
+  
+  // Animación de contadores
+  useEffect(() => {
+    const targetActivos = items.filter(i => i.tipo_contable === 'Activo').length;
+    const targetPasivos = items.filter(i => i.tipo_contable === 'Pasivo').length;
+    const targetUsuarios = usuarios.length;
+    
+    const duration = 1000;
+    const startTime = performance.now();
+    const startActivos = 0;
+    const startPasivos = 0;
+    const startUsuarios = 0;
+    
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+      
+      setCountedActivos(Math.floor(startActivos + (targetActivos - startActivos) * easeOutQuart));
+      setCountedPasivos(Math.floor(startPasivos + (targetPasivos - startPasivos) * easeOutQuart));
+      setCountedUsuarios(Math.floor(startUsuarios + (targetUsuarios - startUsuarios) * easeOutQuart));
+      
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    requestAnimationFrame(animate);
+  }, [items, usuarios]);
+
+  // Estados para el visor de imágenes
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<{
+    url: string;
+    nombre: string;
+    codigo?: string;
+    categoria?: string;
+    ubicacion?: string;
+    responsable?: string;
+    estado?: string;
+    stock?: number;
+  } | null>(null);
 
   const addToast = (message: string, type: ToastType) => {
     const id = Math.random().toString(36).substring(7);
@@ -278,6 +326,25 @@ export default function EncargadoDashboardPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  const openImageViewer = (item: any) => {
+    const imageUrl = getProxyImageUrl(item.imagen_url);
+    if (!imageUrl || imageUrl.trim() === '') {
+      addToast('Este artículo no tiene una imagen válida', 'warning');
+      return;
+    }
+    setSelectedImage({
+      url: imageUrl,
+      nombre: item.nombre,
+      codigo: item.codigo,
+      categoria: item.categoria,
+      ubicacion: item.ubicacion,
+      responsable: item.responsable_nombre,
+      estado: item.estado,
+      stock: item.stock
+    });
+    setImageViewerOpen(true);
+  };
+
   useEffect(() => {
     setMounted(true);
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -296,13 +363,13 @@ export default function EncargadoDashboardPage() {
         return router.push('/login');
       }
       
-      if (profile.role !== 'encargado') {
+      if (profile.role !== 'encargado' && profile.role !== 'admin') {
         router.push('/login');
         return;
       }
       
       setAdminProfile(profile);
-      fetchData();
+      fetchAdminData();
       
       await checkDriveConnection();
     };
@@ -354,7 +421,7 @@ export default function EncargadoDashboardPage() {
             }
           }
         } catch (error) {
-          console.log('Token local inválido, se necesita reconectar');
+          console.log('Token local inválido');
           localStorage.removeItem('drive_access_token');
           localStorage.removeItem('drive_token_expiry');
           setDriveConnected(false);
@@ -365,12 +432,14 @@ export default function EncargadoDashboardPage() {
     checkLocalToken();
   }, []);
 
-  async function fetchData() {
+  async function fetchAdminData() {
     setLoading(true);
     const { data: itemsData } = await supabase.from('items').select('*').order('created_at', { ascending: false });
+    const { data: userData } = await supabase.from('profiles').select('*').order('full_name');
     const { data: ubiData } = await supabase.from('ubicaciones').select('*').order('nombre');
     
     setItems(itemsData || []);
+    setUsuarios(userData || []);
     setUbicaciones(ubiData || []);
     setLoading(false);
   }
@@ -399,7 +468,6 @@ export default function EncargadoDashboardPage() {
     return originalUrl;
   };
 
-  // ======================== NUEVA FUNCIÓN GENERAR PDF BLOB ========================
   const generatePdfBlob = async (htmlContent: string): Promise<Blob> => {
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
@@ -495,7 +563,6 @@ export default function EncargadoDashboardPage() {
     router.push('/login');
   };
 
-  // ======================== REPORTE GENERAL DE INVENTARIO (ACTUALIZADO) ========================
   const handlePrintInventory = async () => {
     const activos = items.filter(i => i.tipo_contable === 'Activo');
     const pasivos = items.filter(i => i.tipo_contable === 'Pasivo');
@@ -520,95 +587,7 @@ export default function EncargadoDashboardPage() {
     const totalPasivos = pasivos.length;
     const totalPatrimonio = patrimonio.length;
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>INV-CORE | Reporte General de Inventario</title>
-          <meta charset="utf-8">
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-              font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-              background: #f4f7fc;
-              padding: 30px 20px;
-              font-size: 13px;
-              color: #1e293b;
-            }
-            .report-container {
-              max-width: 1200px;
-              margin: 0 auto;
-              background: white;
-              border-radius: 20px;
-              box-shadow: 0 20px 35px -10px rgba(0,0,0,0.1);
-              overflow: hidden;
-            }
-            .header {
-              background: linear-gradient(135deg, #2D1B69 0%, #3d2a8a 100%);
-              color: white;
-              padding: 30px 35px;
-              text-align: center;
-            }
-            .logo {
-              font-size: 32px;
-              font-weight: 800;
-              letter-spacing: -0.5px;
-              margin-bottom: 6px;
-            }
-            .logo span { color: #FFD700; }
-            .subtitle { font-size: 12px; opacity: 0.8; letter-spacing: 1px; }
-            .fecha { text-align: right; font-size: 11px; color: #94a3b8; padding: 15px 30px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
-            .stats { display: flex; justify-content: space-around; padding: 20px 30px; background: #f1f5f9; gap: 15px; flex-wrap: wrap; }
-            .stat-card { background: white; border-radius: 16px; padding: 12px 24px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.05); flex: 1; min-width: 100px; }
-            .stat-number { font-size: 28px; font-weight: 800; color: #1e293b; }
-            .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-top: 4px; }
-            h2 { font-size: 18px; margin: 25px 30px 15px 30px; padding-left: 12px; border-left: 5px solid #FFD700; color: #0f172a; font-weight: 700; }
-            .table-wrapper { overflow-x: auto; margin: 0 25px 30px 25px; border-radius: 16px; border: 1px solid #e2e8f0; background: white; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th { background: #f1f5f9; padding: 12px 8px; text-align: left; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; color: #334155; border-bottom: 1px solid #cbd5e1; }
-            td { vertical-align: top; }
-            .footer { text-align: center; padding: 20px 30px; background: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 10px; color: #64748b; }
-          </style>
-        </head>
-        <body>
-          <div class="report-container">
-            <div class="header">
-              <div class="logo">INV<span>-CORE</span></div>
-              <div class="subtitle">Sistema de Gestión de Inventarios</div>
-            </div>
-            <div class="fecha">Generado: ${now.toLocaleString('es-EC')}</div>
-            <div class="stats">
-              <div class="stat-card"><div class="stat-number">${totalActivos}</div><div class="stat-label">Activos</div></div>
-              <div class="stat-card"><div class="stat-number">${totalPasivos}</div><div class="stat-label">Pasivos</div></div>
-              <div class="stat-card"><div class="stat-number">${totalPatrimonio}</div><div class="stat-label">Patrimonio</div></div>
-              <div class="stat-card"><div class="stat-number">${totalItems}</div><div class="stat-label">Total Ítems</div></div>
-            </div>
-            <h2>📦 ACTIVOS</h2>
-            <div class="table-wrapper">
-              <table>
-                <thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead>
-                <tbody>${renderTableRows(activos)}</tbody>
-              </table>
-            </div>
-            <h2>📋 PASIVOS</h2>
-            <div class="table-wrapper">
-              <table>
-                <thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead>
-                <tbody>${renderTableRows(pasivos)}</tbody>
-              </table>
-            </div>
-            <h2>🏛️ PATRIMONIO</h2>
-            <div class="table-wrapper">
-              <table>
-                <thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead>
-                <tbody>${renderTableRows(patrimonio)}</tbody>
-              </table>
-            </div>
-            <div class="footer">Documento generado automáticamente por INV-CORE • Todos los derechos reservados</div>
-          </div>
-        </body>
-      </html>
-    `;
+    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>INV-CORE | Reporte General de Inventario</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Roboto,sans-serif;background:#f4f7fc;padding:30px 20px;font-size:13px;color:#1e293b}.report-container{max-width:1200px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 35px -10px rgba(0,0,0,0.1);overflow:hidden}.header{background:linear-gradient(135deg,#2D1B69 0%,#3d2a8a 100%);color:white;padding:30px 35px;text-align:center}.logo{font-size:32px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px}.logo span{color:#FFD700}.subtitle{font-size:12px;opacity:0.8;letter-spacing:1px}.fecha{text-align:right;font-size:11px;color:#94a3b8;padding:15px 30px;background:#f8fafc;border-bottom:1px solid #e2e8f0}.stats{display:flex;justify-content:space-around;padding:20px 30px;background:#f1f5f9;gap:15px;flex-wrap:wrap}.stat-card{background:white;border-radius:16px;padding:12px 24px;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,0.05);flex:1;min-width:100px}.stat-number{font-size:28px;font-weight:800;color:#1e293b}.stat-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#475569;margin-top:4px}h2{font-size:18px;margin:25px 30px 15px 30px;padding-left:12px;border-left:5px solid #FFD700;color:#0f172a;font-weight:700}.table-wrapper{overflow-x:auto;margin:0 25px 30px 25px;border-radius:16px;border:1px solid #e2e8f0;background:white}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f5f9;padding:12px 8px;text-align:left;font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px;color:#334155;border-bottom:1px solid #cbd5e1}td{vertical-align:top}.footer{text-align:center;padding:20px 30px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#64748b}</style></head><body><div class="report-container"><div class="header"><div class="logo">INV<span>-CORE</span></div><div class="subtitle">Sistema de Gestión de Inventarios</div></div><div class="fecha">Generado: ${now.toLocaleString('es-EC')}</div><div class="stats"><div class="stat-card"><div class="stat-number">${totalActivos}</div><div class="stat-label">Activos</div></div><div class="stat-card"><div class="stat-number">${totalPasivos}</div><div class="stat-label">Pasivos</div></div><div class="stat-card"><div class="stat-number">${totalPatrimonio}</div><div class="stat-label">Patrimonio</div></div><div class="stat-card"><div class="stat-number">${totalItems}</div><div class="stat-label">Total Ítems</div></div></div><h2>📦 ACTIVOS</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(activos)}</tbody></table></div><h2>📋 PASIVOS</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(pasivos)}</tbody></table></div><h2>🏛️ PATRIMONIO</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(patrimonio)}</tbody></table></div><div class="footer">Documento generado automáticamente por INV-CORE • Todos los derechos reservados</div></div></body></html>`;
 
     try {
       setUploadingPdf(true);
@@ -647,7 +626,6 @@ export default function EncargadoDashboardPage() {
     }
   };
 
-  // ======================== ACTA DE ENTREGA CORREGIDA ========================
   const handlePrintActa = async () => {
     if (!printConfig.responsable_filtro) {
       addToast('Selecciona un responsable en el filtro', 'warning');
@@ -665,10 +643,7 @@ export default function EncargadoDashboardPage() {
     const renderTableRows = itemsFiltrados.map(i => `
       <tr>
         <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; vertical-align: middle;">
-          ${i.imagen_url ? 
-            `<img src="${getProxyImageUrl(i.imagen_url)}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px; display: block; margin: 0 auto;" />` : 
-            `<div style="width: 60px; height: 60px; background: #f0f0f0; border-radius: 6px; margin: 0 auto;"></div>`
-          }
+          ${i.imagen_url ? `<img src="${getProxyImageUrl(i.imagen_url)}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px; display: block; margin: 0 auto;" />` : `<div style="width: 60px; height: 60px; background: #f0f0f0; border-radius: 6px; margin: 0 auto;"></div>`}
         </td>
         <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; vertical-align: middle; font-weight: bold; font-size: 13px;">${i.stock || 1}</td>
         <td style="border: 1px solid #000; padding: 8px 6px; vertical-align: top;">
@@ -685,209 +660,10 @@ export default function EncargadoDashboardPage() {
     const totalItems = itemsFiltrados.length;
     const totalCantidad = itemsFiltrados.reduce((sum, i) => sum + (i.stock || 1), 0);
 
-    const htmlContent = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>ACTA DE ENTREGA - ${printConfig.responsable_filtro}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
-      background: white;
-      padding: 0;
-      margin: 0;
-      font-size: 13px;
-      line-height: 1.45;
-      color: #1e2a3e;
-    }
-    .page {
-      max-width: 1100px;
-      margin: 0 auto;
-      background: white;
-      padding: 15px 20px 25px 20px;
-      box-sizing: border-box;
-    }
-    .header-image { text-align: center; margin: 0 0 12px 0; }
-    .header-image img { width: 100%; height: auto; display: block; }
-    .title {
-      text-align: center;
-      font-size: 22px;
-      font-weight: 700;
-      text-transform: uppercase;
-      margin: 12px 0 8px 0;
-      color: #8039a3;
-      letter-spacing: -0.3px;
-    }
-    .acta-code {
-      text-align: center;
-      font-size: 14px;
-      margin-bottom: 20px;
-      font-weight: 600;
-      color: #2c3e50;
-    }
-    .meta-data {
-      margin: 16px 0;
-      padding: 14px 20px;
-      background: #f8f9fc;
-      border-left: 5px solid #8039a3;
-      font-size: 12.5px;
-      border-radius: 4px;
-    }
-    .meta-data p { margin: 6px 0; }
-    .meta-data strong { color: #8039a3; font-weight: 600; }
-    .description {
-      margin: 16px 0;
-      text-align: justify;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    .table-wrapper {
-      margin: 18px 0;
-      border: 1px solid #d0d7de;
-      border-radius: 8px;
-      overflow-x: auto;
-      background: white;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th {
-      background: #8039a3;
-      color: white;
-      padding: 12px 8px;
-      text-align: center;
-      border: 1px solid #6a2e8a;
-      font-weight: 700;
-      font-size: 12.5px;
-    }
-    td {
-      border: 1px solid #e2e8f0;
-      padding: 10px 8px;
-      vertical-align: top;
-      background-color: white;
-    }
-    .total-bienes {
-      text-align: right;
-      margin: 12px 0;
-      font-size: 13px;
-      font-weight: 700;
-      color: #1e4666;
-    }
-    .nota {
-      margin: 18px 0;
-      padding: 12px 18px;
-      background: #fffbeb;
-      border-left: 5px solid #f5b042;
-      border-radius: 6px;
-      font-size: 11.5px;
-      color: #92400e;
-    }
-    .signatures {
-      margin-top: 50px;
-      display: flex;
-      justify-content: space-between;
-      text-align: center;
-      gap: 30px;
-      flex-wrap: wrap;
-    }
-    .signature {
-      flex: 1;
-      min-width: 170px;
-    }
-    .signature-line {
-      border-top: 1.5px solid #334155;
-      margin-top: 45px;
-      margin-bottom: 10px;
-      width: 100%;
-    }
-    .signature-name { font-weight: 700; font-size: 13px; color: #1e293b; }
-    .signature-title { font-size: 11px; color: #4b5563; margin-top: 4px; }
-    .footer {
-      margin-top: 30px;
-      text-align: center;
-      font-size: 9px;
-      color: #8ca3b9;
-      border-top: 1px solid #eef2f6;
-      padding-top: 12px;
-    }
-  </style>
-</head>
-<body>
-<div class="page">
-  <div class="header-image">
-    <img src="/cabecera.png" alt="Logo Institución" onerror="this.style.display='none'">
-  </div>
-  <div class="title">ACTA DE ENTREGA DE BIENES</div>
-  <div class="acta-code">Código: ${printConfig.acta_no} | Fecha: ${fechaActa}</div>
-  <div class="meta-data">
-    <p><strong>DE:</strong> ${printConfig.remitente_nombre} - ${printConfig.remitente_cargo}</p>
-    ${printConfig.incluir_inspector ? `<p><strong>INSPECTOR:</strong> ${printConfig.inspector_nombre} - ${printConfig.inspector_cargo}</p>` : ''}
-    <p><strong>PARA (RESPONSABLE):</strong> ${printConfig.responsable_filtro} - ${printConfig.cargo_encargado || 'RESPONSABLE'}</p>
-    ${printConfig.testigo_nombre ? `<p><strong>TESTIGO:</strong> ${printConfig.testigo_nombre}${printConfig.testigo_cargo ? ` - ${printConfig.testigo_cargo}` : ''}</p>` : ''}
-    <p><strong>FECHA DE ENTREGA:</strong> ${fechaActa}</p>
-  </div>
-  <div class="description">
-    Por medio del presente se realiza formalmente y de manera detallada la entrega de los siguientes bienes, 
-    bajo la responsabilidad del encargado firmante. Este documento lo compromete como único responsable 
-    de los bienes que se le están entregando a su cargo.
-  </div>
-  <div class="table-wrapper">
-    <table>
-      <thead>
-        <tr>
-          <th style="width:12%">IMAGEN</th>
-          <th style="width:6%">CANT.</th>
-          <th style="width:32%">DESCRIPCIÓN</th>
-          <th style="width:10%">ESTADO</th>
-          <th style="width:25%">OBSERVACIONES</th>
-          <th style="width:15%">FECHA ADQ.</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${renderTableRows}
-      </tbody>
-    </table>
-  </div>
-  <div class="total-bienes">
-    Total de bienes entregados: ${totalItems} tipos | Cantidad total de unidades: ${totalCantidad}
-  </div>
-  <div class="nota">
-    <strong>📌 Recordatorio:</strong> En caso de encontrarse novedades al final del periodo, se le recuerda 
-    que usted es el único responsable de entregar los bienes en las mismas condiciones en que fueron recibidos.
-  </div>
-  <div class="signatures">
-    <div class="signature">
-      <div class="signature-line"></div>
-      <div class="signature-name">${printConfig.remitente_nombre}</div>
-      <div class="signature-title">${printConfig.remitente_cargo}</div>
-    </div>
-    ${printConfig.incluir_inspector ? `
-    <div class="signature">
-      <div class="signature-line"></div>
-      <div class="signature-name">${printConfig.inspector_nombre}</div>
-      <div class="signature-title">${printConfig.inspector_cargo}</div>
-    </div>` : ''}
-    <div class="signature">
-      <div class="signature-line"></div>
-      <div class="signature-name">${printConfig.responsable_filtro}</div>
-      <div class="signature-title">${printConfig.cargo_encargado || 'RESPONSABLE'}</div>
-    </div>
-    ${printConfig.testigo_nombre ? `
-    <div class="signature">
-      <div class="signature-line"></div>
-      <div class="signature-name">${printConfig.testigo_nombre}</div>
-      <div class="signature-title">${printConfig.testigo_cargo || 'TESTIGO'}</div>
-    </div>` : ''}
-  </div>
-  <div class="footer">
-    Documento generado automáticamente por INV-CORE - Sistema de Gestión de Inventarios
-  </div>
-</div>
-</body>
-</html>`;
+    const htmlContent = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ACTA DE ENTREGA - ${printConfig.responsable_filtro}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter','Segoe UI','Roboto',sans-serif;background:white;padding:0;margin:0;font-size:13px;line-height:1.45;color:#1e2a3e}.page{max-width:1100px;margin:0 auto;background:white;padding:15px 20px 25px 20px;box-sizing:border-box}.header-image{text-align:center;margin:0 0 12px 0}.header-image img{width:100%;height:auto;display:block}.title{text-align:center;font-size:22px;font-weight:700;text-transform:uppercase;margin:12px 0 8px 0;color:#8039a3;letter-spacing:-0.3px}.acta-code{text-align:center;font-size:14px;margin-bottom:20px;font-weight:600;color:#2c3e50}.meta-data{margin:16px 0;padding:14px 20px;background:#f8f9fc;border-left:5px solid #8039a3;font-size:12.5px;border-radius:4px}.meta-data p{margin:6px 0}.meta-data strong{color:#8039a3;font-weight:600}.description{margin:16px 0;text-align:justify;font-size:13px;line-height:1.5}.table-wrapper{margin:18px 0;border:1px solid #d0d7de;border-radius:8px;overflow-x:auto;background:white}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#8039a3;color:white;padding:12px 8px;text-align:center;border:1px solid #6a2e8a;font-weight:700;font-size:12.5px}td{border:1px solid #e2e8f0;padding:10px 8px;vertical-align:top;background-color:white}.total-bienes{text-align:right;margin:12px 0;font-size:13px;font-weight:700;color:#1e4666}.nota{margin:18px 0;padding:12px 18px;background:#fffbeb;border-left:5px solid #f5b042;border-radius:6px;font-size:11.5px;color:#92400e}.signatures{margin-top:50px;display:flex;justify-content:space-between;text-align:center;gap:30px;flex-wrap:wrap}.signature{flex:1;min-width:170px}.signature-line{border-top:1.5px solid #334155;margin-top:45px;margin-bottom:10px;width:100%}.signature-name{font-weight:700;font-size:13px;color:#1e293b}.signature-title{font-size:11px;color:#4b5563;margin-top:4px}.footer{margin-top:30px;text-align:center;font-size:9px;color:#8ca3b9;border-top:1px solid #eef2f6;padding-top:12px}</style></head><body><div class="page"><div class="header-image"><img src="/cabecera.png" alt="Logo Institución" onerror="this.style.display='none'"></div><div class="title">ACTA DE ENTREGA DE BIENES</div><div class="acta-code">Código: ${printConfig.acta_no} | Fecha: ${fechaActa}</div><div class="meta-data"><p><strong>DE:</strong> ${printConfig.remitente_nombre} - ${printConfig.remitente_cargo}</p>${printConfig.incluir_inspector ? `<p><strong>INSPECTOR:</strong> ${printConfig.inspector_nombre} - ${printConfig.inspector_cargo}</p>` : ''}<p><strong>PARA (RESPONSABLE):</strong> ${printConfig.responsable_filtro} - ${printConfig.cargo_encargado || 'RESPONSABLE'}</p>${printConfig.testigo_nombre ? `<p><strong>TESTIGO:</strong> ${printConfig.testigo_nombre}${printConfig.testigo_cargo ? ` - ${printConfig.testigo_cargo}` : ''}</p>` : ''}<p><strong>FECHA DE ENTREGA:</strong> ${fechaActa}</p></div><div class="description">Por medio del presente se realiza formalmente y de manera detallada la entrega de los siguientes bienes, bajo la responsabilidad del encargado firmante. Este documento lo compromete como único responsable de los bienes que se le están entregando a su cargo.</div><div class="table-wrapper"><table><thead><tr><th style="width:12%">IMAGEN</th><th style="width:6%">CANT.</th><th style="width:32%">DESCRIPCIÓN</th><th style="width:10%">ESTADO</th><th style="width:25%">OBSERVACIONES</th><th style="width:15%">FECHA ADQ.</th></tr></thead><tbody>${renderTableRows}</tbody></table></div><div class="total-bienes">Total de bienes entregados: ${totalItems} tipos | Cantidad total de unidades: ${totalCantidad}</div><div class="nota"><strong>📌 Recordatorio:</strong> En caso de encontrarse novedades al final del periodo, se le recuerda que usted es el único responsable de entregar los bienes en las mismas condiciones en que fueron recibidos.</div><div class="signatures"><div class="signature"><div class="signature-line"></div><div class="signature-name">${printConfig.remitente_nombre}</div><div class="signature-title">${printConfig.remitente_cargo}</div></div>${printConfig.incluir_inspector ? `<div class="signature"><div class="signature-line"></div><div class="signature-name">${printConfig.inspector_nombre}</div><div class="signature-title">${printConfig.inspector_cargo}</div></div>` : ''}<div class="signature"><div class="signature-line"></div><div class="signature-name">${printConfig.responsable_filtro}</div><div class="signature-title">${printConfig.cargo_encargado || 'RESPONSABLE'}</div></div>${printConfig.testigo_nombre ? `<div class="signature"><div class="signature-line"></div><div class="signature-name">${printConfig.testigo_nombre}</div><div class="signature-title">${printConfig.testigo_cargo || 'TESTIGO'}</div></div>` : ''}</div><div class="footer">Documento generado automáticamente por INV-CORE - Sistema de Gestión de Inventarios</div></div></body></html>`;
 
     try {
       setUploadingPdf(true);
-
       const pdfBlob = await generatePdfBlob(htmlContent);
       const fileName = `Acta_Entrega_${printConfig.responsable_filtro.replace(/\s/g, '_')}_${printConfig.acta_no}`;
       await savePdfToDrive(pdfBlob, fileName).catch(err => console.warn('Error guardando en Drive:', err));
@@ -923,7 +699,6 @@ export default function EncargadoDashboardPage() {
     }
   };
 
-  // ======================== GRÁFICOS Y OTRAS FUNCIONES ========================
   const tipoContableData = () => {
     const activos = items.filter(i => i.tipo_contable === 'Activo').length;
     const pasivos = items.filter(i => i.tipo_contable === 'Pasivo').length;
@@ -942,9 +717,12 @@ export default function EncargadoDashboardPage() {
       counts[cat] = (counts[cat] || 0) + 1;
     });
     return Object.entries(counts)
-      .map(([name, value]) => ({ name: name.length > 20 ? name.substring(0, 18) + '…' : name, value }))
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
       .sort((a, b) => b.value - a.value)
-      .slice(0, isMobile ? 5 : 8);
+      .slice(0, isMobile ? 4 : 5);
   };
 
   const responsablesData = () => {
@@ -954,7 +732,10 @@ export default function EncargadoDashboardPage() {
       counts[resp] = (counts[resp] || 0) + 1;
     });
     return Object.entries(counts)
-      .map(([name, value]) => ({ name: name.length > 20 ? name.substring(0, 18) + '…' : name, value }))
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
       .sort((a, b) => b.value - a.value)
       .slice(0, isMobile ? 4 : 5);
   };
@@ -966,7 +747,10 @@ export default function EncargadoDashboardPage() {
       counts[ubi] = (counts[ubi] || 0) + 1;
     });
     return Object.entries(counts)
-      .map(([name, value]) => ({ name: name.length > 20 ? name.substring(0, 18) + '…' : name, value }))
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
       .sort((a, b) => b.value - a.value)
       .slice(0, isMobile ? 4 : 5);
   };
@@ -976,7 +760,7 @@ export default function EncargadoDashboardPage() {
       const { error } = await supabase.from('items').delete().eq('id', itemId);
       if (!error) {
         addToast('Artículo eliminado correctamente', 'success');
-        fetchData();
+        fetchAdminData();
       } else {
         addToast('Error al eliminar el artículo', 'error');
       }
@@ -989,7 +773,7 @@ export default function EncargadoDashboardPage() {
       const { error } = await supabase.from('ubicaciones').delete().eq('id', id);
       if (!error) {
         addToast('Ubicación eliminada', 'success');
-        fetchData();
+        fetchAdminData();
       } else {
         addToast('Error al eliminar ubicación', 'error');
       }
@@ -1017,7 +801,7 @@ export default function EncargadoDashboardPage() {
 
     if (!error) {
       setShowModal(false);
-      fetchData();
+      fetchAdminData();
       setFormData({
         id: null, nombre: '', categoria: 'Útiles Escolares', stock: 1,
         imagen_url: '', codigo: '', estado: 'Bueno',
@@ -1032,6 +816,23 @@ export default function EncargadoDashboardPage() {
     }
   };
 
+  const handleAddUbicacionWrapper = async () => {
+    if (!nuevaUbicacion.trim()) {
+      addToast('Ingresa el nombre de la ubicación', 'warning');
+      return;
+    }
+    const { error } = await supabase
+      .from('ubicaciones')
+      .insert([{ nombre: nuevaUbicacion.trim().toUpperCase() }]);
+    
+    if (!error) {
+      setNuevaUbicacion('');
+      fetchAdminData();
+      addToast('Ubicación registrada', 'success');
+    } else {
+      addToast('Error: ' + error.message, 'error');
+    }
+  };
   const handleSaveUbicacionWrapper = async () => {
     if (!ubicacionEditando?.nombre?.trim()) {
       addToast('El nombre no puede estar vacío', 'warning');
@@ -1045,31 +846,12 @@ export default function EncargadoDashboardPage() {
     if (!error) {
       setShowUbicacionModal(false);
       setUbicacionEditando(null);
-      fetchData();
+      fetchAdminData();
       addToast('Ubicación actualizada', 'success');
     } else {
       addToast('Error: ' + error.message, 'error');
     }
   };
-
-  const handleAddUbicacionWrapper = async () => {
-    if (!nuevaUbicacion.trim()) {
-      addToast('Ingresa el nombre de la ubicación', 'warning');
-      return;
-    }
-    const { error } = await supabase
-      .from('ubicaciones')
-      .insert([{ nombre: nuevaUbicacion.trim().toUpperCase() }]);
-    
-    if (!error) {
-      setNuevaUbicacion('');
-      fetchData();
-      addToast('Ubicación registrada', 'success');
-    } else {
-      addToast('Error: ' + error.message, 'error');
-    }
-  };
-
   const handleImageUploadWrapper = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1108,7 +890,7 @@ export default function EncargadoDashboardPage() {
       setDriveConnected(true);
     } catch (err) {
       console.error(err);
-      addToast('Error al subir imagen. Intenta vincular desde Drive manualmente.', 'error');
+      addToast('Error al subir imagen', 'error');
     } finally {
       setUploadingImage(false);
     }
@@ -1162,7 +944,6 @@ export default function EncargadoDashboardPage() {
     }
   };
 
-  // ======================== RENDER (JSX) ========================
   if (!mounted) return null;
 
   return (
@@ -1234,15 +1015,9 @@ export default function EncargadoDashboardPage() {
                 <h2 className="text-[#2D1B69] font-black">{adminProfile?.full_name || 'Encargado'}</h2>
               </div>
               <div className="flex items-center gap-3">
-                {/* Solo estado de Drive, sin botón para conectar */}
-                <div className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${
-                  driveChecking ? 'bg-gray-100 text-gray-500' :
-                  driveConnected ? 'bg-green-100 text-green-700 border border-green-300' :
-                  'bg-red-50 text-red-600 border border-red-200'
-                }`}>
-                  {driveChecking ? <Loader2 size={14} className="animate-spin" /> :
-                   driveConnected ? <><CheckCircle size={14} /> Activo</> :
-                   <><AlertCircle size={14} /> Desconectado</>}
+                {/* Solo mostramos el estado de Drive, sin botón de conexión */}
+                <div className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${driveChecking ? 'bg-gray-400 text-white' : driveConnected ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-red-100 text-red-700 border border-red-300'}`}>
+                  {driveChecking ? <Loader2 size={14} className="animate-spin" /> : driveConnected ? <><CheckCircle size={14} /> Drive Conectado</> : <><AlertCircle size={14} /> Drive Desconectado</>}
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] font-bold text-slate-400 uppercase">{now.toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'short' })}</p>
@@ -1254,72 +1029,289 @@ export default function EncargadoDashboardPage() {
             {/* PANEL */}
             {activeTab === 'Panel' && (
               <div className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                  <div className="bg-[#2D1B69] text-white p-8 rounded-2xl shadow-lg flex justify-between items-center">
-                    <div><p className="text-[9px] font-black uppercase opacity-60">Activos</p><h3 className="text-4xl font-black">{items.filter(i => i.tipo_contable === 'Activo').length}</h3></div>
-                    <div className="opacity-20 scale-[2]"><Landmark /></div>
-                  </div>
-                  <div className="bg-[#FFD700] text-[#2D1B69] p-8 rounded-2xl shadow-lg flex justify-between items-center">
-                    <div><p className="text-[9px] font-black uppercase opacity-60">Pasivos</p><h3 className="text-4xl font-black">{items.filter(i => i.tipo_contable === 'Pasivo').length}</h3></div>
-                    <div className="opacity-20 scale-[2]"><Receipt /></div>
-                  </div>
-                  <div className="bg-white text-[#2D1B69] p-8 rounded-2xl shadow-lg flex justify-between items-center">
-                    <div><p className="text-[9px] font-black uppercase opacity-60">Ubicaciones</p><h3 className="text-4xl font-black">{ubicaciones.length}</h3></div>
-                    <div className="opacity-20 scale-[2]"><MapPin /></div>
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.1 }}
+                    className="bg-[#2D1B69] text-white p-5 md:p-8 rounded-2xl shadow-lg flex justify-between items-center"
+                  >
+                    <div>
+                      <p className="text-[8px] md:text-[9px] font-black uppercase opacity-60">Activos</p>
+                      <motion.h3 
+                        initial={{ scale: 0.9 }}
+                        animate={{ scale: 1 }}
+                        transition={{ duration: 0.3, delay: 0.2 }}
+                        className="text-2xl md:text-4xl font-black font-mono"
+                      >
+                        {countedActivos}
+                      </motion.h3>
+                    </div>
+                    <div className="opacity-20 scale-[1.5] md:scale-[2]"><Landmark /></div>
+                  </motion.div>
+
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.2 }}
+                    className="bg-[#FFD700] text-[#2D1B69] p-5 md:p-8 rounded-2xl shadow-lg flex justify-between items-center"
+                  >
+                    <div>
+                      <p className="text-[8px] md:text-[9px] font-black uppercase opacity-60">Pasivos</p>
+                      <motion.h3 
+                        initial={{ scale: 0.9 }}
+                        animate={{ scale: 1 }}
+                        transition={{ duration: 0.3, delay: 0.3 }}
+                        className="text-2xl md:text-4xl font-black font-mono"
+                      >
+                        {countedPasivos}
+                      </motion.h3>
+                    </div>
+                    <div className="opacity-20 scale-[1.5] md:scale-[2]"><Receipt /></div>
+                  </motion.div>
+
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.3 }}
+                    className="bg-white text-[#2D1B69] p-5 md:p-8 rounded-2xl shadow-lg flex justify-between items-center"
+                  >
+                    <div>
+                      <p className="text-[8px] md:text-[9px] font-black uppercase opacity-60">Usuarios</p>
+                      <motion.h3 
+                        initial={{ scale: 0.9 }}
+                        animate={{ scale: 1 }}
+                        transition={{ duration: 0.3, delay: 0.4 }}
+                        className="text-2xl md:text-4xl font-black font-mono"
+                      >
+                        {countedUsuarios}
+                      </motion.h3>
+                    </div>
+                    <div className="opacity-20 scale-[1.5] md:scale-[2]"><Users /></div>
+                  </motion.div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-[#2D1B69] mb-4 text-lg">Distribución por Tipo Contable</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <PieChart>
-                        <Pie data={tipoContableData()} cx="50%" cy="50%" innerRadius={isMobile ? 40 : 60} outerRadius={isMobile ? 70 : 100} dataKey="value" label={({ name, percent }) => { const pct = percent ?? 0; return isMobile ? `${(pct * 100).toFixed(0)}%` : `${name}: ${(pct * 100).toFixed(0)}%`; }}>
-                          {tipoContableData().map((entry, idx) => (<Cell key={idx} fill={entry.color} />))}
-                        </Pie>
-                        <Tooltip /><Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.4 }}
+                    className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200"
+                  >
+                    <h3 className="font-bold text-[#2D1B69] mb-3 md:mb-4 text-base md:text-lg">Distribución por Tipo Contable</h3>
+                    <div style={{ width: '100%', height: isMobile ? 280 : 300, position: 'relative' }}>
+                      {items.length > 0 && tipoContableData().length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie 
+                              data={tipoContableData()} 
+                              cx="50%" 
+                              cy="45%" 
+                              innerRadius={isMobile ? 35 : 60} 
+                              outerRadius={isMobile ? 60 : 100} 
+                              dataKey="value" 
+                              labelLine={false}
+                              label={({ name, percent }) => { 
+                                const pct = percent ?? 0; 
+                                if (isMobile) {
+                                  return `${(pct * 100).toFixed(0)}%`;
+                                }
+                                return `${name}: ${(pct * 100).toFixed(0)}%`;
+                              }}
+                              fontSize={isMobile ? 10 : 12}
+                              animationBegin={400}
+                              animationDuration={800}
+                              animationEasing="ease-out"
+                              isAnimationActive={true}
+                            >
+                              {tipoContableData().map((entry, idx) => (
+                                <Cell 
+                                  key={`cell-${idx}`} 
+                                  fill={entry.color}
+                                  style={{ animation: `fadeIn 0.5s ease-out ${idx * 0.1}s both` }}
+                                />
+                              ))}
+                            </Pie>
+                            <Tooltip 
+                              formatter={(value) => [`${value} items`, 'Cantidad']}
+                              animationDuration={200}
+                            />
+                            <Legend 
+                              verticalAlign="bottom" 
+                              height={isMobile ? 40 : 36}
+                              wrapperStyle={{ fontSize: isMobile ? '10px' : '12px' }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-xl">
+                          <p className="text-xs md:text-sm">Cargando datos...</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
 
-                  <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-[#2D1B69] mb-4 text-lg">Top 5 Responsables</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={responsablesData()} layout={isMobile ? "horizontal" : "vertical"} margin={{ left: isMobile ? 0 : 80, bottom: isMobile ? 50 : 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        {isMobile ? (<><XAxis dataKey="name" angle={-45} textAnchor="end" height={80} /><YAxis type="number" /></>) : (<><XAxis type="number" /><YAxis type="category" dataKey="name" width={80} /></>)}
-                        <Tooltip /><Bar dataKey="value" fill="#2D1B69" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.5 }}
+                    className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200"
+                  >
+                    <h3 className="font-bold text-[#2D1B69] mb-3 md:mb-4 text-base md:text-lg">Top 5 Responsables</h3>
+                    <div style={{ width: '100%', height: isMobile ? 280 : 300, position: 'relative' }}>
+                      {items.length > 0 && responsablesData().length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart 
+                            data={responsablesData()} 
+                            layout="vertical"
+                            margin={{ 
+                              left: isMobile ? 50 : 80, 
+                              right: isMobile ? 10 : 20, 
+                              top: isMobile ? 10 : 20, 
+                              bottom: isMobile ? 10 : 20 
+                            }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: isMobile ? 10 : 12 }} />
+                            <YAxis 
+                              type="category" 
+                              dataKey="name" 
+                              width={isMobile ? 50 : 80} 
+                              tick={{ fontSize: isMobile ? 9 : 12 }}
+                              interval={0}
+                            />
+                            <Tooltip 
+                              formatter={(value) => [`${value} items`, 'Cantidad']}
+                              animationDuration={200}
+                            />
+                            <Bar 
+                              dataKey="value" 
+                              fill="#2D1B69" 
+                              radius={[0, 4, 4, 0]}
+                              animationBegin={500}
+                              animationDuration={800}
+                              animationEasing="ease-out"
+                              isAnimationActive={true}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-xl">
+                          <p className="text-xs md:text-sm">Cargando datos...</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
 
-                  <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-[#2D1B69] mb-4 text-lg">Top 5 Ubicaciones</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={ubicacionesData()} layout={isMobile ? "horizontal" : "vertical"} margin={{ left: isMobile ? 0 : 100, bottom: isMobile ? 50 : 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        {isMobile ? (<><XAxis dataKey="name" angle={-45} textAnchor="end" height={80} /><YAxis type="number" /></>) : (<><XAxis type="number" /><YAxis type="category" dataKey="name" width={100} /></>)}
-                        <Tooltip /><Bar dataKey="value" fill="#10b981" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.6 }}
+                    className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200"
+                  >
+                    <h3 className="font-bold text-[#2D1B69] mb-3 md:mb-4 text-base md:text-lg">Top 5 Ubicaciones</h3>
+                    <div style={{ width: '100%', height: isMobile ? 280 : 300, position: 'relative' }}>
+                      {items.length > 0 && ubicacionesData().length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart 
+                            data={ubicacionesData()} 
+                            layout="vertical"
+                            margin={{ 
+                              left: isMobile ? 70 : 100, 
+                              right: isMobile ? 10 : 20, 
+                              top: isMobile ? 10 : 20, 
+                              bottom: isMobile ? 10 : 20 
+                            }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: isMobile ? 10 : 12 }} />
+                            <YAxis 
+                              type="category" 
+                              dataKey="name" 
+                              width={isMobile ? 70 : 100} 
+                              tick={{ fontSize: isMobile ? 9 : 12 }}
+                              interval={0}
+                            />
+                            <Tooltip 
+                              formatter={(value) => [`${value} items`, 'Cantidad']}
+                              animationDuration={200}
+                            />
+                            <Bar 
+                              dataKey="value" 
+                              fill="#10b981" 
+                              radius={[0, 4, 4, 0]}
+                              animationBegin={600}
+                              animationDuration={800}
+                              animationEasing="ease-out"
+                              isAnimationActive={true}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-xl">
+                          <p className="text-xs md:text-sm">Cargando datos...</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
 
-                  <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-[#2D1B69] mb-4 text-lg">Top Categorías</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={categoriasData()} layout={isMobile ? "horizontal" : "vertical"} margin={{ left: isMobile ? 0 : 120, bottom: isMobile ? 80 : 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        {isMobile ? (<><XAxis dataKey="name" angle={-45} textAnchor="end" height={100} interval={0} /><YAxis type="number" /></>) : (<><XAxis type="number" /><YAxis type="category" dataKey="name" width={120} /></>)}
-                        <Tooltip /><Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.7 }}
+                    className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200"
+                  >
+                    <h3 className="font-bold text-[#2D1B69] mb-3 md:mb-4 text-base md:text-lg">Top Categorías</h3>
+                    <div style={{ width: '100%', height: isMobile ? 280 : 300, position: 'relative' }}>
+                      {items.length > 0 && categoriasData().length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart 
+                            data={categoriasData()} 
+                            layout="vertical"
+                            margin={{ 
+                              left: isMobile ? 90 : 120, 
+                              right: isMobile ? 10 : 20, 
+                              top: isMobile ? 10 : 20, 
+                              bottom: isMobile ? 10 : 20 
+                            }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: isMobile ? 10 : 12 }} />
+                            <YAxis 
+                              type="category" 
+                              dataKey="name" 
+                              width={isMobile ? 90 : 120} 
+                              tick={{ fontSize: isMobile ? 8 : 11 }}
+                              interval={0}
+                            />
+                            <Tooltip 
+                              formatter={(value) => [`${value} items`, 'Cantidad']}
+                              animationDuration={200}
+                            />
+                            <Bar 
+                              dataKey="value" 
+                              fill="#f97316" 
+                              radius={[0, 4, 4, 0]}
+                              animationBegin={700}
+                              animationDuration={800}
+                              animationEasing="ease-out"
+                              isAnimationActive={true}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-xl">
+                          <p className="text-xs md:text-sm">Cargando datos...</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
                 </div>
               </div>
             )}
 
-            {/* INVENTARIO */}
-            {activeTab === 'Inventario' && (
+            {/* INVENTARIO - Versión Desktop (Tabla) */}
+            {activeTab === 'Inventario' && !isMobile && (
               <div className="bg-white rounded-3xl shadow-sm overflow-hidden border border-slate-100">
                 <div className="p-6 flex flex-wrap gap-4 justify-between bg-slate-50/50">
                   <div className="relative flex-1 min-w-[200px]">
@@ -1327,11 +1319,7 @@ export default function EncargadoDashboardPage() {
                     <input type="text" placeholder="Buscar por nombre, código, responsable, ubicación o fecha..." className="w-full pl-12 pr-4 py-3.5 border-none bg-white rounded-xl text-sm shadow-sm" onChange={e => setSearchTerm(e.target.value)} />
                   </div>
                   <div className="flex gap-2 flex-wrap">
-                    <button 
-                      onClick={handlePrintInventory} 
-                      disabled={uploadingPdf} 
-                      className="bg-slate-200 text-slate-700 px-5 py-3.5 rounded-xl text-xs font-bold uppercase flex items-center gap-2"
-                    >
+                    <button onClick={handlePrintInventory} disabled={uploadingPdf} className="bg-slate-200 text-slate-700 px-5 py-3.5 rounded-xl text-xs font-bold uppercase flex items-center gap-2">
                       {uploadingPdf ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}
                       {uploadingPdf ? 'Generando Reporte...' : 'Reporte General'}
                     </button>
@@ -1342,27 +1330,141 @@ export default function EncargadoDashboardPage() {
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase"><tr><th className="p-5 text-center">Imagen</th><th className="p-5">Código</th><th className="p-5">Artículo</th><th className="p-5">Responsable</th><th className="p-5">Ubicación</th><th className="p-5 text-center">Stock</th><th className="p-5">Fecha Adq.</th><th className="p-5 text-right">Acciones</th></tr></thead>
+                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase">
+                      <tr><th className="p-5 text-center">Imagen</th><th className="p-5">Código</th><th className="p-5">Artículo</th><th className="p-5">Responsable</th><th className="p-5">Ubicación</th><th className="p-5 text-center">Stock</th><th className="p-5">Fecha Adq.</th><th className="p-5 text-right">Acciones</th></tr>
+                    </thead>
                     <tbody className="text-sm divide-y divide-slate-100">
-                      {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return true; const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; const fechaOriginal = i.fecha_adquisicion || ''; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); }).map(item => (
-                        <tr key={item.id} className="hover:bg-slate-50/80">
-                          <td className="p-4 flex justify-center">{item.imagen_url ? <img src={getProxyImageUrl(item.imagen_url)} className="w-10 h-10 object-cover rounded-lg" alt={item.nombre} /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center"><Camera size={14} /></div>}</td>
-                          <td className="p-5 font-mono font-bold text-[#2D1B69] text-xs">{item.codigo}</td>
-                          <td className="p-5"><div className="font-bold text-slate-800">{item.nombre}</div><div className="text-[9px] text-slate-400 uppercase">{item.categoria}</div>{item.observaciones && <div className="text-[9px] text-slate-500 mt-1">{item.observaciones.substring(0, 50)}</div>}</td>
-                          <td className="p-5"><span className="text-xs text-indigo-600 font-bold">{item.responsable_nombre || 'Sin responsable'}</span></td>
-                          <td className="p-5"><span className="text-xs text-slate-600 italic">{item.ubicacion}</span></td>
-                          <td className="p-5 text-center font-black text-[#2D1B69]">{item.stock}</td>
-                          <td className="p-5 text-xs text-slate-500">{item.fecha_adquisicion || '---'}</td>
-                          <td className="p-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => { setFormData(item); setShowModal(true); }} className="text-blue-600 p-2 hover:bg-blue-50 rounded-lg"><Edit3 size={16} /></button><button onClick={() => handleDeleteItem(item.id, item.nombre)} className="text-red-500 p-2 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button></div></td>
-                        </tr>
-                      ))}
+                      {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return true; const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; const fechaOriginal = i.fecha_adquisicion || ''; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); }).map((item, idx) => {
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/80">
+                            <td className="p-4">
+                              {item.imagen_url ? (
+                                <button
+                                  onClick={() => openImageViewer(item)}
+                                  className="group relative w-12 h-12 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer"
+                                >
+                                  <img src={getProxyImageUrl(item.imagen_url)} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" alt={item.nombre} />
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
+                                    <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </div>
+                                </button>
+                              ) : (
+                                <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
+                                  <Camera size={16} className="text-slate-300" />
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-5 font-mono font-bold text-[#2D1B69] text-xs">{item.codigo}</td>
+                            <td className="p-5"><div className="font-bold text-slate-800">{item.nombre}</div><div className="text-[9px] text-slate-400 uppercase">{item.categoria}</div>{item.observaciones && <div className="text-[9px] text-slate-500 mt-1">{item.observaciones.substring(0, 50)}</div>}</td>
+                            <td className="p-5"><span className="text-xs text-indigo-600 font-bold">{item.responsable_nombre || 'Sin responsable'}</span></td>
+                            <td className="p-5"><span className="text-xs text-slate-600 italic">{item.ubicacion}</span></td>
+                            <td className="p-5 text-center font-black text-[#2D1B69]">{item.stock}</td>
+                            <td className="p-5 text-xs text-slate-500">{item.fecha_adquisicion || '---'}</td>
+                            <td className="p-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => { setFormData(item); setShowModal(true); }} className="text-blue-600 p-2 hover:bg-blue-50 rounded-lg"><Edit3 size={16} /></button><button onClick={() => handleDeleteItem(item.id, item.nombre)} className="text-red-500 p-2 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button></div></td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {/* IMPRESIONES (se mantiene igual que en admin) */}
+            {/* INVENTARIO - Versión Móvil (Tarjetas) */}
+            {activeTab === 'Inventario' && isMobile && (
+              <div className="space-y-4 p-4">
+                <div className="flex flex-col gap-3 mb-4 sticky top-0 bg-slate-50 z-10 p-3 rounded-xl">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar por nombre, código, responsable..." 
+                      className="w-full pl-9 pr-3 py-2 border-none bg-white rounded-xl text-sm shadow-sm" 
+                      onChange={e => setSearchTerm(e.target.value)} 
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handlePrintInventory} 
+                      disabled={uploadingPdf} 
+                      className="flex-1 bg-slate-200 text-slate-700 py-2.5 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2"
+                    >
+                      {uploadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+                      {uploadingPdf ? 'Generando...' : 'Reporte General'}
+                    </button>
+                    <button 
+                      onClick={() => { setFormData({ ...formData, id: null, nombre: '', codigo: '', imagen_url: '', observaciones: '' }); setShowModal(true); }} 
+                      className="flex-1 bg-[#2D1B69] text-white py-2.5 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2"
+                    >
+                      <Plus size={14} /> Nuevo Artículo
+                    </button>
+                  </div>
+                </div>
+                
+                {items.filter(i => { 
+                  const term = searchTerm.toLowerCase().trim(); 
+                  if (term === '') return true; 
+                  const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; 
+                  const fechaOriginal = i.fecha_adquisicion || ''; 
+                  return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); 
+                }).map((item) => {
+                  return (
+                    <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                      <div className="flex p-4 gap-4">
+                        <button
+                          onClick={() => item.imagen_url && openImageViewer(item)}
+                          className="w-20 h-20 rounded-xl overflow-hidden bg-slate-50 flex-shrink-0 shadow-sm hover:shadow-md transition-all"
+                        >
+                          {item.imagen_url ? (
+                            <img src={getProxyImageUrl(item.imagen_url)} className="w-full h-full object-cover" alt={item.nombre} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Camera size={24} className="text-slate-300" />
+                            </div>
+                          )}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h4 className="font-bold text-slate-800 text-sm line-clamp-2">{item.nombre}</h4>
+                              <p className="text-[10px] text-indigo-600 font-mono mt-1">{item.codigo}</p>
+                            </div>
+                            <span className="text-xs font-black text-[#2D1B69] bg-[#2D1B69]/10 px-2 py-1 rounded-lg">{item.stock}</span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.categoria}</span>
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.ubicacion}</span>
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.responsable_nombre || 'Sin responsable'}</span>
+                          </div>
+                          <div className="mt-3 flex gap-2">
+                            <button onClick={() => { setFormData(item); setShowModal(true); }} className="flex-1 bg-[#2D1B69]/10 text-[#2D1B69] py-2 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1">
+                              <Edit3 size={12} /> Editar
+                            </button>
+                            <button onClick={() => handleDeleteItem(item.id, item.nombre)} className="flex-1 bg-red-50 text-red-600 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1">
+                              <Trash2 size={12} /> Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {items.filter(i => { 
+                  const term = searchTerm.toLowerCase().trim(); 
+                  if (term === '') return false; 
+                  const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; 
+                  const fechaOriginal = i.fecha_adquisicion || ''; 
+                  return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); 
+                }).length === 0 && searchTerm && (
+                  <div className="text-center py-8">
+                    <p className="text-slate-400 text-sm">No se encontraron resultados para "{searchTerm}"</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* IMPRESIONES */}
             {activeTab === 'Impresiones' && (
               <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-8">
                 <h3 className="text-[#2D1B69] font-black uppercase italic mb-6 flex items-center gap-2"><Printer size={24} /> Generar Acta de Entrega Personalizada</h3>
@@ -1456,7 +1558,9 @@ export default function EncargadoDashboardPage() {
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
-                      <thead className="bg-slate-50 text-[10px] font-bold"><tr><th className="p-4">Documento</th><th className="p-4">Fecha</th><th className="p-4">Tamaño</th><th className="p-4 text-right">Acción</th></tr></thead>
+                      <thead className="bg-slate-50 text-[10px] font-bold">
+                        <tr><th className="p-4">Documento</th><th className="p-4">Fecha</th><th className="p-4">Tamaño</th><th className="p-4 text-right">Acción</th></tr>
+                      </thead>
                       <tbody>
                         {historyFiles.map(file => (
                           <tr key={file.id}>
@@ -1473,7 +1577,7 @@ export default function EncargadoDashboardPage() {
               </div>
             )}
 
-            {/* MODAL DE EDICIÓN DE UBICACIÓN */}
+            {/* MODALES */}
             {showUbicacionModal && ubicacionEditando && (
               <div className="fixed inset-0 bg-[#2D1B69]/60 backdrop-blur-md z-300 flex items-center justify-center p-4">
                 <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-md shadow-2xl">
@@ -1484,7 +1588,6 @@ export default function EncargadoDashboardPage() {
               </div>
             )}
 
-            {/* MODAL DE ARTÍCULO (completo, igual que admin) */}
             {showModal && (
               <div className="fixed inset-0 bg-[#2D1B69]/80 backdrop-blur-md z-200 flex items-center justify-center p-4 overflow-y-auto">
                 <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
@@ -1528,6 +1631,12 @@ export default function EncargadoDashboardPage() {
             )}
           </div>
         </main>
+        
+        <ImageViewer
+          image={selectedImage}
+          isOpen={imageViewerOpen}
+          onClose={() => setImageViewerOpen(false)}
+        />
       </div>
     </ToastContext.Provider>
   );

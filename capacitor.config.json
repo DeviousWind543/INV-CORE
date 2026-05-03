@@ -1,0 +1,16 @@
+{
+  "appId": "com.invcore.app",
+  "appName": "INV-CORE",
+  "webDir": "out",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false,
+    "hostname": "inv-core.vercel.app",
+    "url": "https://inv-core.vercel.app"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": false
+  }
+}

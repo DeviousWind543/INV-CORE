@@ -1,16 +1,17 @@
 'use client';
 
-import { useEffect, useState, createContext, useContext } from 'react';
+import { useEffect, useState, createContext, useContext, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
   LayoutDashboard, Package, ShieldCheck,
-  X, Landmark, Receipt, MapPin, Search, Menu, Camera, LogOut, Eye, Loader2, CheckCircle, AlertCircle, Info, AlertTriangle
+  X, MapPin, Landmark, Receipt, Search, Menu, LogOut, Camera, Eye, EyeOff, Loader2, Clock, CheckCircle, AlertCircle, Info, AlertTriangle
 } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
+import ImageViewer from '@/components/ImageViewer';
 
-// ======================== SISTEMA DE TOASTS (solo lectura) ========================
+// ======================== SISTEMA DE TOASTS ========================
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 interface Toast {
@@ -75,7 +76,7 @@ function ToastContainer() {
   );
 }
 
-// ======================== COMPONENTE PRINCIPAL PARA ESPECTADOR ========================
+// ======================== COMPONENTE PRINCIPAL ========================
 export default function EspectadorDashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('Panel');
@@ -83,19 +84,26 @@ export default function EspectadorDashboardPage() {
   const [items, setItems] = useState<any[]>([]);
   const [ubicaciones, setUbicaciones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<any>(null);
+  const [adminProfile, setAdminProfile] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [mounted, setMounted] = useState(false);
   const [now, setNow] = useState(new Date());
   const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const addToast = (message: string, type: ToastType) => {
-    const id = Math.random().toString(36).substring(7);
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
-  };
-
-  const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
+  const [countedActivos, setCountedActivos] = useState(0);
+  const [countedPasivos, setCountedPasivos] = useState(0);
+  
+  // Estados para el visor de imágenes
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<{
+    url: string;
+    nombre: string;
+    codigo?: string;
+    categoria?: string;
+    ubicacion?: string;
+    responsable?: string;
+    estado?: string;
+    stock?: number;
+  } | null>(null);
 
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -105,6 +113,68 @@ export default function EspectadorDashboardPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  const addToast = (message: string, type: ToastType) => {
+    const id = Math.random().toString(36).substring(7);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+  };
+
+  const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
+
+  // Animación de contadores
+  useEffect(() => {
+    const targetActivos = items.filter(i => i.tipo_contable === 'Activo').length;
+    const targetPasivos = items.filter(i => i.tipo_contable === 'Pasivo').length;
+    
+    const duration = 1000;
+    const startTime = performance.now();
+    const startActivos = 0;
+    const startPasivos = 0;
+    
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+      
+      setCountedActivos(Math.floor(startActivos + (targetActivos - startActivos) * easeOutQuart));
+      setCountedPasivos(Math.floor(startPasivos + (targetPasivos - startPasivos) * easeOutQuart));
+      
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    requestAnimationFrame(animate);
+  }, [items]);
+
+  const getProxyImageUrl = (originalUrl: string) => {
+    if (!originalUrl) return '';
+    if (originalUrl.includes('drive.google.com')) {
+      const fileIdMatch = originalUrl.match(/[-\w]{25,}/);
+      if (fileIdMatch) return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+    }
+    return originalUrl;
+  };
+
+  const openImageViewer = (item: any) => {
+    const imageUrl = getProxyImageUrl(item.imagen_url);
+    if (!imageUrl || imageUrl.trim() === '') {
+      addToast('Este artículo no tiene una imagen válida', 'warning');
+      return;
+    }
+    setSelectedImage({
+      url: imageUrl,
+      nombre: item.nombre,
+      codigo: item.codigo,
+      categoria: item.categoria,
+      ubicacion: item.ubicacion,
+      responsable: item.responsable_nombre,
+      estado: item.estado,
+      stock: item.stock
+    });
+    setImageViewerOpen(true);
+  };
+
   useEffect(() => {
     setMounted(true);
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -112,23 +182,25 @@ export default function EspectadorDashboardPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return router.push('/login');
       
-      const { data: profileData, error } = await supabase
+      const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', session.user.id)
         .single();
       
-      if (error || !profileData) {
+      if (error || !profile) {
         console.error('Error obteniendo perfil:', error);
         return router.push('/login');
       }
       
-      if (profileData.role !== 'espectador') {
-        router.push('/login');
+      if (profile.role !== 'espectador') {
+        if (profile.role === 'admin') router.push('/admin/dashboard');
+        else if (profile.role === 'encargado') router.push('/Encargado');
+        else router.push('/login');
         return;
       }
       
-      setProfile(profileData);
+      setAdminProfile(profile);
       fetchData();
     };
     checkAuth();
@@ -145,21 +217,12 @@ export default function EspectadorDashboardPage() {
     setLoading(false);
   }
 
-  const getProxyImageUrl = (originalUrl: string) => {
-    if (!originalUrl) return '';
-    if (originalUrl.includes('drive.google.com')) {
-      const fileIdMatch = originalUrl.match(/[-\w]{25,}/);
-      if (fileIdMatch) return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
-    }
-    return originalUrl;
-  };
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/login');
   };
 
-  // ======================== GRÁFICOS (solo lectura) ========================
+  // Datos para gráficos
   const tipoContableData = () => {
     const activos = items.filter(i => i.tipo_contable === 'Activo').length;
     const pasivos = items.filter(i => i.tipo_contable === 'Pasivo').length;
@@ -178,9 +241,12 @@ export default function EspectadorDashboardPage() {
       counts[cat] = (counts[cat] || 0) + 1;
     });
     return Object.entries(counts)
-      .map(([name, value]) => ({ name: name.length > 20 ? name.substring(0, 18) + '…' : name, value }))
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
       .sort((a, b) => b.value - a.value)
-      .slice(0, isMobile ? 5 : 8);
+      .slice(0, isMobile ? 4 : 5);
   };
 
   const responsablesData = () => {
@@ -190,7 +256,10 @@ export default function EspectadorDashboardPage() {
       counts[resp] = (counts[resp] || 0) + 1;
     });
     return Object.entries(counts)
-      .map(([name, value]) => ({ name: name.length > 20 ? name.substring(0, 18) + '…' : name, value }))
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
       .sort((a, b) => b.value - a.value)
       .slice(0, isMobile ? 4 : 5);
   };
@@ -202,12 +271,14 @@ export default function EspectadorDashboardPage() {
       counts[ubi] = (counts[ubi] || 0) + 1;
     });
     return Object.entries(counts)
-      .map(([name, value]) => ({ name: name.length > 20 ? name.substring(0, 18) + '…' : name, value }))
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
       .sort((a, b) => b.value - a.value)
       .slice(0, isMobile ? 4 : 5);
   };
 
-  // ======================== RENDER (JSX) ========================
   if (!mounted) return null;
 
   return (
@@ -233,7 +304,7 @@ export default function EspectadorDashboardPage() {
           <nav className="flex-1 px-4 space-y-2">
             {[
               { id: 'Panel', icon: <LayoutDashboard size={18} />, label: 'Panel' },
-              { id: 'Inventario', icon: <Package size={18} />, label: 'Inventario' }
+              { id: 'Inventario', icon: <Package size={18} />, label: 'Inventario' },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -265,7 +336,7 @@ export default function EspectadorDashboardPage() {
               <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-[#2D1B69] p-2 bg-slate-50 rounded-lg"><Menu /></button>
               <div className="hidden sm:block">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Panel Espectador</p>
-                <h2 className="text-[#2D1B69] font-black">{profile?.full_name || 'Espectador'}</h2>
+                <h2 className="text-[#2D1B69] font-black">{adminProfile?.full_name || 'Espectador'}</h2>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right">
@@ -275,75 +346,272 @@ export default function EspectadorDashboardPage() {
               </div>
             </header>
 
-            {/* PANEL (solo gráficos, sin acciones) */}
+            {/* PANEL */}
             {activeTab === 'Panel' && (
               <div className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                  <div className="bg-[#2D1B69] text-white p-8 rounded-2xl shadow-lg flex justify-between items-center">
-                    <div><p className="text-[9px] font-black uppercase opacity-60">Activos</p><h3 className="text-4xl font-black">{items.filter(i => i.tipo_contable === 'Activo').length}</h3></div>
-                    <div className="opacity-20 scale-[2]"><Landmark /></div>
-                  </div>
-                  <div className="bg-[#FFD700] text-[#2D1B69] p-8 rounded-2xl shadow-lg flex justify-between items-center">
-                    <div><p className="text-[9px] font-black uppercase opacity-60">Pasivos</p><h3 className="text-4xl font-black">{items.filter(i => i.tipo_contable === 'Pasivo').length}</h3></div>
-                    <div className="opacity-20 scale-[2]"><Receipt /></div>
-                  </div>
-                  <div className="bg-white text-[#2D1B69] p-8 rounded-2xl shadow-lg flex justify-between items-center">
-                    <div><p className="text-[9px] font-black uppercase opacity-60">Ubicaciones</p><h3 className="text-4xl font-black">{ubicaciones.length}</h3></div>
-                    <div className="opacity-20 scale-[2]"><MapPin /></div>
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.1 }}
+                    className="bg-[#2D1B69] text-white p-5 md:p-8 rounded-2xl shadow-lg flex justify-between items-center"
+                  >
+                    <div>
+                      <p className="text-[8px] md:text-[9px] font-black uppercase opacity-60">Activos</p>
+                      <motion.h3 
+                        initial={{ scale: 0.9 }}
+                        animate={{ scale: 1 }}
+                        transition={{ duration: 0.3, delay: 0.2 }}
+                        className="text-2xl md:text-4xl font-black font-mono"
+                      >
+                        {countedActivos}
+                      </motion.h3>
+                    </div>
+                    <div className="opacity-20 scale-[1.5] md:scale-[2]"><Landmark /></div>
+                  </motion.div>
+
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.2 }}
+                    className="bg-[#FFD700] text-[#2D1B69] p-5 md:p-8 rounded-2xl shadow-lg flex justify-between items-center"
+                  >
+                    <div>
+                      <p className="text-[8px] md:text-[9px] font-black uppercase opacity-60">Pasivos</p>
+                      <motion.h3 
+                        initial={{ scale: 0.9 }}
+                        animate={{ scale: 1 }}
+                        transition={{ duration: 0.3, delay: 0.3 }}
+                        className="text-2xl md:text-4xl font-black font-mono"
+                      >
+                        {countedPasivos}
+                      </motion.h3>
+                    </div>
+                    <div className="opacity-20 scale-[1.5] md:scale-[2]"><Receipt /></div>
+                  </motion.div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-[#2D1B69] mb-4 text-lg">Distribución por Tipo Contable</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <PieChart>
-                        <Pie data={tipoContableData()} cx="50%" cy="50%" innerRadius={isMobile ? 40 : 60} outerRadius={isMobile ? 70 : 100} dataKey="value" label={({ name, percent }) => { const pct = percent ?? 0; return isMobile ? `${(pct * 100).toFixed(0)}%` : `${name}: ${(pct * 100).toFixed(0)}%`; }}>
-                          {tipoContableData().map((entry, idx) => (<Cell key={idx} fill={entry.color} />))}
-                        </Pie>
-                        <Tooltip /><Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.4 }}
+                    className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200"
+                  >
+                    <h3 className="font-bold text-[#2D1B69] mb-3 md:mb-4 text-base md:text-lg">Distribución por Tipo Contable</h3>
+                    <div style={{ width: '100%', height: isMobile ? 280 : 300, position: 'relative' }}>
+                      {items.length > 0 && tipoContableData().length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie 
+                              data={tipoContableData()} 
+                              cx="50%" 
+                              cy="45%" 
+                              innerRadius={isMobile ? 35 : 60} 
+                              outerRadius={isMobile ? 60 : 100} 
+                              dataKey="value" 
+                              labelLine={false}
+                              label={({ name, percent }) => { 
+                                const pct = percent ?? 0; 
+                                if (isMobile) {
+                                  return `${(pct * 100).toFixed(0)}%`;
+                                }
+                                return `${name}: ${(pct * 100).toFixed(0)}%`;
+                              }}
+                              fontSize={isMobile ? 10 : 12}
+                              animationBegin={400}
+                              animationDuration={800}
+                              animationEasing="ease-out"
+                              isAnimationActive={true}
+                            >
+                              {tipoContableData().map((entry, idx) => (
+                                <Cell 
+                                  key={`cell-${idx}`} 
+                                  fill={entry.color}
+                                  style={{ animation: `fadeIn 0.5s ease-out ${idx * 0.1}s both` }}
+                                />
+                              ))}
+                            </Pie>
+                            <Tooltip 
+                              formatter={(value) => [`${value} items`, 'Cantidad']}
+                              animationDuration={200}
+                            />
+                            <Legend 
+                              verticalAlign="bottom" 
+                              height={isMobile ? 40 : 36}
+                              wrapperStyle={{ fontSize: isMobile ? '10px' : '12px' }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-xl">
+                          <p className="text-xs md:text-sm">Cargando datos...</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
 
-                  <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-[#2D1B69] mb-4 text-lg">Top 5 Responsables</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={responsablesData()} layout={isMobile ? "horizontal" : "vertical"} margin={{ left: isMobile ? 0 : 80, bottom: isMobile ? 50 : 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        {isMobile ? (<><XAxis dataKey="name" angle={-45} textAnchor="end" height={80} /><YAxis type="number" /></>) : (<><XAxis type="number" /><YAxis type="category" dataKey="name" width={80} /></>)}
-                        <Tooltip /><Bar dataKey="value" fill="#2D1B69" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.5 }}
+                    className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200"
+                  >
+                    <h3 className="font-bold text-[#2D1B69] mb-3 md:mb-4 text-base md:text-lg">Top 5 Responsables</h3>
+                    <div style={{ width: '100%', height: isMobile ? 280 : 300, position: 'relative' }}>
+                      {items.length > 0 && responsablesData().length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart 
+                            data={responsablesData()} 
+                            layout="vertical"
+                            margin={{ 
+                              left: isMobile ? 50 : 80, 
+                              right: isMobile ? 10 : 20, 
+                              top: isMobile ? 10 : 20, 
+                              bottom: isMobile ? 10 : 20 
+                            }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: isMobile ? 10 : 12 }} />
+                            <YAxis 
+                              type="category" 
+                              dataKey="name" 
+                              width={isMobile ? 50 : 80} 
+                              tick={{ fontSize: isMobile ? 9 : 12 }}
+                              interval={0}
+                            />
+                            <Tooltip 
+                              formatter={(value) => [`${value} items`, 'Cantidad']}
+                              animationDuration={200}
+                            />
+                            <Bar 
+                              dataKey="value" 
+                              fill="#2D1B69" 
+                              radius={[0, 4, 4, 0]}
+                              animationBegin={500}
+                              animationDuration={800}
+                              animationEasing="ease-out"
+                              isAnimationActive={true}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-xl">
+                          <p className="text-xs md:text-sm">Cargando datos...</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
 
-                  <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-[#2D1B69] mb-4 text-lg">Top 5 Ubicaciones</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={ubicacionesData()} layout={isMobile ? "horizontal" : "vertical"} margin={{ left: isMobile ? 0 : 100, bottom: isMobile ? 50 : 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        {isMobile ? (<><XAxis dataKey="name" angle={-45} textAnchor="end" height={80} /><YAxis type="number" /></>) : (<><XAxis type="number" /><YAxis type="category" dataKey="name" width={100} /></>)}
-                        <Tooltip /><Bar dataKey="value" fill="#10b981" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.6 }}
+                    className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200"
+                  >
+                    <h3 className="font-bold text-[#2D1B69] mb-3 md:mb-4 text-base md:text-lg">Top 5 Ubicaciones</h3>
+                    <div style={{ width: '100%', height: isMobile ? 280 : 300, position: 'relative' }}>
+                      {items.length > 0 && ubicacionesData().length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart 
+                            data={ubicacionesData()} 
+                            layout="vertical"
+                            margin={{ 
+                              left: isMobile ? 70 : 100, 
+                              right: isMobile ? 10 : 20, 
+                              top: isMobile ? 10 : 20, 
+                              bottom: isMobile ? 10 : 20 
+                            }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: isMobile ? 10 : 12 }} />
+                            <YAxis 
+                              type="category" 
+                              dataKey="name" 
+                              width={isMobile ? 70 : 100} 
+                              tick={{ fontSize: isMobile ? 9 : 12 }}
+                              interval={0}
+                            />
+                            <Tooltip 
+                              formatter={(value) => [`${value} items`, 'Cantidad']}
+                              animationDuration={200}
+                            />
+                            <Bar 
+                              dataKey="value" 
+                              fill="#10b981" 
+                              radius={[0, 4, 4, 0]}
+                              animationBegin={600}
+                              animationDuration={800}
+                              animationEasing="ease-out"
+                              isAnimationActive={true}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-xl">
+                          <p className="text-xs md:text-sm">Cargando datos...</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
 
-                  <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-[#2D1B69] mb-4 text-lg">Top Categorías</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={categoriasData()} layout={isMobile ? "horizontal" : "vertical"} margin={{ left: isMobile ? 0 : 120, bottom: isMobile ? 80 : 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        {isMobile ? (<><XAxis dataKey="name" angle={-45} textAnchor="end" height={100} interval={0} /><YAxis type="number" /></>) : (<><XAxis type="number" /><YAxis type="category" dataKey="name" width={120} /></>)}
-                        <Tooltip /><Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <motion.div 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.7 }}
+                    className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200"
+                  >
+                    <h3 className="font-bold text-[#2D1B69] mb-3 md:mb-4 text-base md:text-lg">Top Categorías</h3>
+                    <div style={{ width: '100%', height: isMobile ? 280 : 300, position: 'relative' }}>
+                      {items.length > 0 && categoriasData().length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart 
+                            data={categoriasData()} 
+                            layout="vertical"
+                            margin={{ 
+                              left: isMobile ? 90 : 120, 
+                              right: isMobile ? 10 : 20, 
+                              top: isMobile ? 10 : 20, 
+                              bottom: isMobile ? 10 : 20 
+                            }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: isMobile ? 10 : 12 }} />
+                            <YAxis 
+                              type="category" 
+                              dataKey="name" 
+                              width={isMobile ? 90 : 120} 
+                              tick={{ fontSize: isMobile ? 8 : 11 }}
+                              interval={0}
+                            />
+                            <Tooltip 
+                              formatter={(value) => [`${value} items`, 'Cantidad']}
+                              animationDuration={200}
+                            />
+                            <Bar 
+                              dataKey="value" 
+                              fill="#f97316" 
+                              radius={[0, 4, 4, 0]}
+                              animationBegin={700}
+                              animationDuration={800}
+                              animationEasing="ease-out"
+                              isAnimationActive={true}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-400 bg-slate-50 rounded-xl">
+                          <p className="text-xs md:text-sm">Cargando datos...</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
                 </div>
               </div>
             )}
 
-            {/* INVENTARIO (solo lectura, sin botones de acción) */}
-            {activeTab === 'Inventario' && (
+            {/* INVENTARIO - Versión Desktop (Tabla) */}
+            {activeTab === 'Inventario' && !isMobile && (
               <div className="bg-white rounded-3xl shadow-sm overflow-hidden border border-slate-100">
                 <div className="p-6 flex flex-wrap gap-4 justify-between bg-slate-50/50">
                   <div className="relative flex-1 min-w-[200px]">
@@ -353,26 +621,142 @@ export default function EspectadorDashboardPage() {
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase"><tr><th className="p-5 text-center">Imagen</th><th className="p-5">Código</th><th className="p-5">Artículo</th><th className="p-5">Responsable</th><th className="p-5">Ubicación</th><th className="p-5 text-center">Stock</th><th className="p-5">Fecha Adq.</th></tr></thead>
+                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase">
+                      <tr>
+                        <th className="p-5 text-center">Imagen</th>
+                        <th className="p-5">Código</th>
+                        <th className="p-5">Artículo</th>
+                        <th className="p-5">Responsable</th>
+                        <th className="p-5">Ubicación</th>
+                        <th className="p-5 text-center">Stock</th>
+                        <th className="p-5">Fecha Adq.</th>
+                      </tr>
+                    </thead>
                     <tbody className="text-sm divide-y divide-slate-100">
-                      {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return true; const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; const fechaOriginal = i.fecha_adquisicion || ''; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); }).map(item => (
-                        <tr key={item.id} className="hover:bg-slate-50/80">
-                          <td className="p-4 flex justify-center">{item.imagen_url ? <img src={getProxyImageUrl(item.imagen_url)} className="w-10 h-10 object-cover rounded-lg" alt={item.nombre} /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center"><Camera size={14} /></div>}</td>
-                          <td className="p-5 font-mono font-bold text-[#2D1B69] text-xs">{item.codigo}</td>
-                          <td className="p-5"><div className="font-bold text-slate-800">{item.nombre}</div><div className="text-[9px] text-slate-400 uppercase">{item.categoria}</div>{item.observaciones && <div className="text-[9px] text-slate-500 mt-1">{item.observaciones.substring(0, 50)}</div>}</td>
-                          <td className="p-5"><span className="text-xs text-indigo-600 font-bold">{item.responsable_nombre || 'Sin responsable'}</span></td>
-                          <td className="p-5"><span className="text-xs text-slate-600 italic">{item.ubicacion}</span></td>
-                          <td className="p-5 text-center font-black text-[#2D1B69]">{item.stock}</td>
-                          <td className="p-5 text-xs text-slate-500">{item.fecha_adquisicion || '---'}</td>
-                        </tr>
-                      ))}
+                      {items.filter(i => { 
+                        const term = searchTerm.toLowerCase().trim(); 
+                        if (term === '') return true; 
+                        const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; 
+                        const fechaOriginal = i.fecha_adquisicion || ''; 
+                        return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); 
+                      }).map((item) => {
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/80">
+                            <td className="p-4">
+                              {item.imagen_url ? (
+                                <button
+                                  onClick={() => openImageViewer(item)}
+                                  className="group relative w-12 h-12 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer"
+                                >
+                                  <img src={getProxyImageUrl(item.imagen_url)} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" alt={item.nombre} />
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
+                                    <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </div>
+                                </button>
+                              ) : (
+                                <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
+                                  <Camera size={16} className="text-slate-300" />
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-5 font-mono font-bold text-[#2D1B69] text-xs">{item.codigo}</td>
+                            <td className="p-5">
+                              <div className="font-bold text-slate-800">{item.nombre}</div>
+                              <div className="text-[9px] text-slate-400 uppercase">{item.categoria}</div>
+                              {item.observaciones && <div className="text-[9px] text-slate-500 mt-1">{item.observaciones.substring(0, 50)}</div>}
+                            </td>
+                            <td className="p-5"><span className="text-xs text-indigo-600 font-bold">{item.responsable_nombre || 'Sin responsable'}</span></td>
+                            <td className="p-5"><span className="text-xs text-slate-600 italic">{item.ubicacion}</span></td>
+                            <td className="p-5 text-center font-black text-[#2D1B69]">{item.stock}</td>
+                            <td className="p-5 text-xs text-slate-500">{item.fecha_adquisicion || '---'}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
+            {/* INVENTARIO - Versión Móvil (Tarjetas) */}
+            {activeTab === 'Inventario' && isMobile && (
+              <div className="space-y-4 p-4">
+                <div className="flex flex-col gap-3 mb-4 sticky top-0 bg-slate-50 z-10 p-3 rounded-xl">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar por nombre, código, responsable..." 
+                      className="w-full pl-9 pr-3 py-2 border-none bg-white rounded-xl text-sm shadow-sm" 
+                      onChange={e => setSearchTerm(e.target.value)} 
+                    />
+                  </div>
+                </div>
+                
+                {items.filter(i => { 
+                  const term = searchTerm.toLowerCase().trim(); 
+                  if (term === '') return true; 
+                  const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; 
+                  const fechaOriginal = i.fecha_adquisicion || ''; 
+                  return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); 
+                }).map((item) => {
+                  return (
+                    <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                      <div className="flex p-4 gap-4">
+                        <button
+                          onClick={() => item.imagen_url && openImageViewer(item)}
+                          className="w-20 h-20 rounded-xl overflow-hidden bg-slate-50 flex-shrink-0 shadow-sm hover:shadow-md transition-all"
+                        >
+                          {item.imagen_url ? (
+                            <img src={getProxyImageUrl(item.imagen_url)} className="w-full h-full object-cover" alt={item.nombre} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Camera size={24} className="text-slate-300" />
+                            </div>
+                          )}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h4 className="font-bold text-slate-800 text-sm line-clamp-2">{item.nombre}</h4>
+                              <p className="text-[10px] text-indigo-600 font-mono mt-1">{item.codigo}</p>
+                            </div>
+                            <span className="text-xs font-black text-[#2D1B69] bg-[#2D1B69]/10 px-2 py-1 rounded-lg">{item.stock}</span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.categoria}</span>
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.ubicacion}</span>
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.responsable_nombre || 'Sin responsable'}</span>
+                          </div>
+                          <div className="mt-3 text-xs text-slate-500">
+                            {item.observaciones && <span className="line-clamp-2">{item.observaciones}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {items.filter(i => { 
+                  const term = searchTerm.toLowerCase().trim(); 
+                  if (term === '') return false; 
+                  const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; 
+                  const fechaOriginal = i.fecha_adquisicion || ''; 
+                  return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); 
+                }).length === 0 && searchTerm && (
+                  <div className="text-center py-8">
+                    <p className="text-slate-400 text-sm">No se encontraron resultados para "{searchTerm}"</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </main>
+        
+        <ImageViewer
+          image={selectedImage}
+          isOpen={imageViewerOpen}
+          onClose={() => setImageViewerOpen(false)}
+        />
       </div>
     </ToastContext.Provider>
   );

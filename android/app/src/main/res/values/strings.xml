@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">INV-CORE</string>
+    <string name="title_activity_main">INV-CORE</string>
+    <string name="package_name">com.invcore.app</string>
+    <string name="custom_url_scheme">com.invcore.app</string>
+</resources>
