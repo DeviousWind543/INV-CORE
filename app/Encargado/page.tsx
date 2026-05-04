@@ -10,6 +10,7 @@ import {
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import ImageViewer from '@/components/ImageViewer';
+import CameraUpload from '@/components/CameraUpload';
 
 // ======================== SISTEMA DE TOASTS ========================
 type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -242,6 +243,19 @@ export default function EncargadoDashboardPage() {
     onConfirm: () => {},
   });
   
+  // Estados para el visor de imágenes
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<{
+    url: string;
+    nombre: string;
+    codigo?: string;
+    categoria?: string;
+    ubicacion?: string;
+    responsable?: string;
+    estado?: string;
+    stock?: number;
+  } | null>(null);
+
   // Animación de contadores
   useEffect(() => {
     const targetActivos = items.filter(i => i.tipo_contable === 'Activo').length;
@@ -270,19 +284,6 @@ export default function EncargadoDashboardPage() {
     
     requestAnimationFrame(animate);
   }, [items, usuarios]);
-
-  // Estados para el visor de imágenes
-  const [imageViewerOpen, setImageViewerOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<{
-    url: string;
-    nombre: string;
-    codigo?: string;
-    categoria?: string;
-    ubicacion?: string;
-    responsable?: string;
-    estado?: string;
-    stock?: number;
-  } | null>(null);
 
   const addToast = (message: string, type: ToastType) => {
     const id = Math.random().toString(36).substring(7);
@@ -587,7 +588,7 @@ export default function EncargadoDashboardPage() {
     const totalPasivos = pasivos.length;
     const totalPatrimonio = patrimonio.length;
 
-    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>INV-CORE | Reporte General de Inventario</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Roboto,sans-serif;background:#f4f7fc;padding:30px 20px;font-size:13px;color:#1e293b}.report-container{max-width:1200px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 35px -10px rgba(0,0,0,0.1);overflow:hidden}.header{background:linear-gradient(135deg,#2D1B69 0%,#3d2a8a 100%);color:white;padding:30px 35px;text-align:center}.logo{font-size:32px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px}.logo span{color:#FFD700}.subtitle{font-size:12px;opacity:0.8;letter-spacing:1px}.fecha{text-align:right;font-size:11px;color:#94a3b8;padding:15px 30px;background:#f8fafc;border-bottom:1px solid #e2e8f0}.stats{display:flex;justify-content:space-around;padding:20px 30px;background:#f1f5f9;gap:15px;flex-wrap:wrap}.stat-card{background:white;border-radius:16px;padding:12px 24px;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,0.05);flex:1;min-width:100px}.stat-number{font-size:28px;font-weight:800;color:#1e293b}.stat-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#475569;margin-top:4px}h2{font-size:18px;margin:25px 30px 15px 30px;padding-left:12px;border-left:5px solid #FFD700;color:#0f172a;font-weight:700}.table-wrapper{overflow-x:auto;margin:0 25px 30px 25px;border-radius:16px;border:1px solid #e2e8f0;background:white}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f5f9;padding:12px 8px;text-align:left;font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px;color:#334155;border-bottom:1px solid #cbd5e1}td{vertical-align:top}.footer{text-align:center;padding:20px 30px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#64748b}</style></head><body><div class="report-container"><div class="header"><div class="logo">INV<span>-CORE</span></div><div class="subtitle">Sistema de Gestión de Inventarios</div></div><div class="fecha">Generado: ${now.toLocaleString('es-EC')}</div><div class="stats"><div class="stat-card"><div class="stat-number">${totalActivos}</div><div class="stat-label">Activos</div></div><div class="stat-card"><div class="stat-number">${totalPasivos}</div><div class="stat-label">Pasivos</div></div><div class="stat-card"><div class="stat-number">${totalPatrimonio}</div><div class="stat-label">Patrimonio</div></div><div class="stat-card"><div class="stat-number">${totalItems}</div><div class="stat-label">Total Ítems</div></div></div><h2>📦 ACTIVOS</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(activos)}</tbody></table></div><h2>📋 PASIVOS</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(pasivos)}</tbody></table></div><h2>🏛️ PATRIMONIO</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(patrimonio)}</tbody></table></div><div class="footer">Documento generado automáticamente por INV-CORE • Todos los derechos reservados</div></div></body></html>`;
+    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>INV-CORE | Reporte General de Inventario</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Roboto,sans-serif;background:#f4f7fc;padding:30px 20px;font-size:13px;color:#1e293b}.report-container{max-width:1200px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 35px -10px rgba(0,0,0,0.1);overflow:hidden}.header{background:linear-gradient(135deg,#2D1B69 0%,#3d2a8a 100%);color:white;padding:30px 35px;text-align:center}.logo{font-size:32px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px}.logo span{color:#FFD700}.subtitle{font-size:12px;opacity:0.8;letter-spacing:1px}.fecha{text-align:right;font-size:11px;color:#94a3b8;padding:15px 30px;background:#f8fafc;border-bottom:1px solid #e2e8f0}.stats{display:flex;justify-content:space-around;padding:20px 30px;background:#f1f5f9;gap:15px;flex-wrap:wrap}.stat-card{background:white;border-radius:16px;padding:12px 24px;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,0.05);flex:1;min-width:100px}.stat-number{font-size:28px;font-weight:800;color:#1e293b}.stat-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#475569;margin-top:4px}h2{font-size:18px;margin:25px 30px 15px 30px;padding-left:12px;border-left:5px solid #FFD700;color:#0f172a;font-weight:700}.table-wrapper{overflow-x:auto;margin:0 25px 30px 25px;border-radius:16px;border:1px solid #e2e8f0;background:white}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f5f9;padding:12px 8px;text-align:left;font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px;color:#334155;border-bottom:1px solid #cbd5e1}td{vertical-align:top}.footer{text-align:center;padding:20px 30px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#64748b}</style></head><body><div class="report-container"><div class="header"><div class="logo">INV<span>-CORE</span></div><div class="subtitle">Sistema de Gestión de Inventarios</div></div><div class="fecha">Generado: ${now.toLocaleString('es-EC')}</div><div class="stats"><div class="stat-card"><div class="stat-number">${totalActivos}</div><div class="stat-label">Activos</div></div><div class="stat-card"><div class="stat-number">${totalPasivos}</div><div class="stat-label">Pasivos</div></div><div class="stat-card"><div class="stat-number">${totalPatrimonio}</div><div class="stat-label">Patrimonio</div></div><div class="stat-card"><div class="stat-number">${totalItems}</div><div class="stat-label">Total Ítems</div></div></div><h2>📦 ACTIVOS</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(activos)}</tbody></table></div><h2>📋 PASIVOS</h2><div class="table-wrapper"><tr><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(pasivos)}</tbody>｜｜DSML｜｜</div><h2>🏛️ PATRIMONIO</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(patrimonio)}</tbody></table></div><div class="footer">Documento generado automáticamente por INV-CORE • Todos los derechos reservados</div></div></body></html>`;
 
     try {
       setUploadingPdf(true);
@@ -833,6 +834,7 @@ export default function EncargadoDashboardPage() {
       addToast('Error: ' + error.message, 'error');
     }
   };
+
   const handleSaveUbicacionWrapper = async () => {
     if (!ubicacionEditando?.nombre?.trim()) {
       addToast('El nombre no puede estar vacío', 'warning');
@@ -852,10 +854,9 @@ export default function EncargadoDashboardPage() {
       addToast('Error: ' + error.message, 'error');
     }
   };
-  const handleImageUploadWrapper = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
+  // Versión corregida de handleImageUploadWrapper que acepta un File
+  const handleImageUploadWrapper = async (file: File) => {
     setUploadingImage(true);
     try {
       let token = await getValidAccessToken();
@@ -890,7 +891,7 @@ export default function EncargadoDashboardPage() {
       setDriveConnected(true);
     } catch (err) {
       console.error(err);
-      addToast('Error al subir imagen', 'error');
+      addToast('Error al subir imagen. Intenta vincular desde Drive manualmente.', 'error');
     } finally {
       setUploadingImage(false);
     }
@@ -1015,7 +1016,6 @@ export default function EncargadoDashboardPage() {
                 <h2 className="text-[#2D1B69] font-black">{adminProfile?.full_name || 'Encargado'}</h2>
               </div>
               <div className="flex items-center gap-3">
-                {/* Solo mostramos el estado de Drive, sin botón de conexión */}
                 <div className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${driveChecking ? 'bg-gray-400 text-white' : driveConnected ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-red-100 text-red-700 border border-red-300'}`}>
                   {driveChecking ? <Loader2 size={14} className="animate-spin" /> : driveConnected ? <><CheckCircle size={14} /> Drive Conectado</> : <><AlertCircle size={14} /> Drive Desconectado</>}
                 </div>
@@ -1334,9 +1334,9 @@ export default function EncargadoDashboardPage() {
                       <tr><th className="p-5 text-center">Imagen</th><th className="p-5">Código</th><th className="p-5">Artículo</th><th className="p-5">Responsable</th><th className="p-5">Ubicación</th><th className="p-5 text-center">Stock</th><th className="p-5">Fecha Adq.</th><th className="p-5 text-right">Acciones</th></tr>
                     </thead>
                     <tbody className="text-sm divide-y divide-slate-100">
-                      {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return true; const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; const fechaOriginal = i.fecha_adquisicion || ''; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); }).map((item, idx) => {
+                      {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return true; const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; const fechaOriginal = i.fecha_adquisicion || ''; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); }).map((item) => {
                         return (
-                          <tr key={item.id} className="hover:bg-slate-50/80">
+                                                    <tr key={item.id} className="hover:bg-slate-50/80">
                             <td className="p-4">
                               {item.imagen_url ? (
                                 <button
@@ -1355,12 +1355,21 @@ export default function EncargadoDashboardPage() {
                               )}
                             </td>
                             <td className="p-5 font-mono font-bold text-[#2D1B69] text-xs">{item.codigo}</td>
-                            <td className="p-5"><div className="font-bold text-slate-800">{item.nombre}</div><div className="text-[9px] text-slate-400 uppercase">{item.categoria}</div>{item.observaciones && <div className="text-[9px] text-slate-500 mt-1">{item.observaciones.substring(0, 50)}</div>}</td>
+                            <td className="p-5">
+                              <div className="font-bold text-slate-800">{item.nombre}</div>
+                              <div className="text-[9px] text-slate-400 uppercase">{item.categoria}</div>
+                              {item.observaciones && <div className="text-[9px] text-slate-500 mt-1">{item.observaciones.substring(0, 50)}</div>}
+                            </td>
                             <td className="p-5"><span className="text-xs text-indigo-600 font-bold">{item.responsable_nombre || 'Sin responsable'}</span></td>
                             <td className="p-5"><span className="text-xs text-slate-600 italic">{item.ubicacion}</span></td>
                             <td className="p-5 text-center font-black text-[#2D1B69]">{item.stock}</td>
                             <td className="p-5 text-xs text-slate-500">{item.fecha_adquisicion || '---'}</td>
-                            <td className="p-5 text-right"><div className="flex justify-end gap-1"><button onClick={() => { setFormData(item); setShowModal(true); }} className="text-blue-600 p-2 hover:bg-blue-50 rounded-lg"><Edit3 size={16} /></button><button onClick={() => handleDeleteItem(item.id, item.nombre)} className="text-red-500 p-2 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button></div></td>
+                            <td className="p-5 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button onClick={() => { setFormData(item); setShowModal(true); }} className="text-blue-600 p-2 hover:bg-blue-50 rounded-lg"><Edit3 size={16} /></button>
+                                <button onClick={() => handleDeleteItem(item.id, item.nombre)} className="text-red-500 p-2 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1598,9 +1607,34 @@ export default function EncargadoDashboardPage() {
                         <label className="text-[11px] font-black uppercase text-slate-500 block">Imagen del Artículo</label>
                         <div className="aspect-square w-full bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center relative overflow-hidden group">
                           {formData.imagen_url ? (
-                            <><img src={getProxyImageUrl(formData.imagen_url)} className="w-full h-full object-cover" /><button type="button" onClick={() => setFormData({ ...formData, imagen_url: "" })} className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full"><X size={14} /></button></>
+                            <>
+                              <img src={getProxyImageUrl(formData.imagen_url)} className="w-full h-full object-cover" />
+                              <button 
+                                type="button" 
+                                onClick={() => setFormData({ ...formData, imagen_url: "" })} 
+                                className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full"
+                              >
+                                <X size={14} />
+                              </button>
+                            </>
                           ) : (
-                            <div className="flex flex-col items-center gap-3 p-4"><Upload size={36} className="text-slate-300" /><label className="cursor-pointer bg-[#2D1B69] text-white px-4 py-2 rounded-lg text-xs font-bold">{uploadingImage ? <Loader2 size={14} className="animate-spin inline" /> : "Subir Imagen"}<input type="file" className="hidden" accept="image/*" onChange={handleImageUploadWrapper} disabled={uploadingImage} /></label><button type="button" onClick={handleDriveLink} className="text-[10px] font-bold text-indigo-500 hover:underline">o vincular desde Drive</button></div>
+                            <div className="flex flex-col items-center gap-3 p-4 w-full">
+                              <CameraUpload 
+                                onImageCaptured={(imageUrl, file) => {
+                                  setFormData(prev => ({ ...prev, imagen_url: imageUrl }));
+                                  handleImageUploadWrapper(file);
+                                }}
+                                disabled={uploadingImage}
+                                buttonText="Tomar Foto"
+                              />
+                              <button 
+                                type="button" 
+                                onClick={handleDriveLink} 
+                                className="text-[10px] font-bold text-indigo-500 hover:underline"
+                              >
+                                o vincular desde Drive
+                              </button>
+                            </div>
                           )}
                         </div>
                         {uploadingImage && <p className="text-center text-xs text-blue-500 animate-pulse">Subiendo imagen a Google Drive...</p>}
