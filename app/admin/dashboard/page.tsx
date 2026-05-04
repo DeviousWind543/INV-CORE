@@ -10,6 +10,7 @@ import {
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import ImageViewer from '@/components/ImageViewer';
+import CameraUpload from '@/components/CameraUpload';
 
 // ======================== SISTEMA DE TOASTS ========================
 type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -242,38 +243,38 @@ export default function AdminDashboardPage() {
     message: '',
     onConfirm: () => {},
   });
+  
   // Animación de contadores
-useEffect(() => {
-  const targetActivos = items.filter(i => i.tipo_contable === 'Activo').length;
-  const targetPasivos = items.filter(i => i.tipo_contable === 'Pasivo').length;
-  const targetUsuarios = usuarios.length;
-  
-  const duration = 1000; // 1 segundo
-  const startTime = performance.now();
-  const startActivos = 0;
-  const startPasivos = 0;
-  const startUsuarios = 0;
-  
-  const animate = (currentTime: number) => {
-    const elapsed = currentTime - startTime;
-    const progress = Math.min(1, elapsed / duration);
+  useEffect(() => {
+    const targetActivos = items.filter(i => i.tipo_contable === 'Activo').length;
+    const targetPasivos = items.filter(i => i.tipo_contable === 'Pasivo').length;
+    const targetUsuarios = usuarios.length;
     
-    // Easing function para animación suave
-    const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+    const duration = 1000;
+    const startTime = performance.now();
+    const startActivos = 0;
+    const startPasivos = 0;
+    const startUsuarios = 0;
     
-    setCountedActivos(Math.floor(startActivos + (targetActivos - startActivos) * easeOutQuart));
-    setCountedPasivos(Math.floor(startPasivos + (targetPasivos - startPasivos) * easeOutQuart));
-    setCountedUsuarios(Math.floor(startUsuarios + (targetUsuarios - startUsuarios) * easeOutQuart));
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const easeOutQuart = 1 - Math.pow(1 - progress, 4);
+      
+      setCountedActivos(Math.floor(startActivos + (targetActivos - startActivos) * easeOutQuart));
+      setCountedPasivos(Math.floor(startPasivos + (targetPasivos - startPasivos) * easeOutQuart));
+      setCountedUsuarios(Math.floor(startUsuarios + (targetUsuarios - startUsuarios) * easeOutQuart));
+      
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
     
-    if (progress < 1) {
-      requestAnimationFrame(animate);
-    }
-  };
-  
-  requestAnimationFrame(animate);
-}, [items, usuarios]); // Se ejecuta cuando cambian items o usuarios
+    requestAnimationFrame(animate);
+  }, [items, usuarios]);
+
   // Estados para el visor de imágenes
- const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<{
     url: string;
     nombre: string;
@@ -332,27 +333,24 @@ useEffect(() => {
   }, []);
 
   // Función para abrir el visor de imágenes
-    const openImageViewer = (item: any) => {
-      const imageUrl = getProxyImageUrl(item.imagen_url);
-      
-      // Solo abrir si la URL no está vacía
-      if (!imageUrl || imageUrl.trim() === '') {
-        addToast('Este artículo no tiene una imagen válida', 'warning');
-        return;
-      }
-      
-      setSelectedImage({
-        url: imageUrl,
-        nombre: item.nombre,
-        codigo: item.codigo,
-        categoria: item.categoria,
-        ubicacion: item.ubicacion,
-        responsable: item.responsable_nombre,
-        estado: item.estado,
-        stock: item.stock
-      });
-      setImageViewerOpen(true);
-    };
+  const openImageViewer = (item: any) => {
+    const imageUrl = getProxyImageUrl(item.imagen_url);
+    if (!imageUrl || imageUrl.trim() === '') {
+      addToast('Este artículo no tiene una imagen válida', 'warning');
+      return;
+    }
+    setSelectedImage({
+      url: imageUrl,
+      nombre: item.nombre,
+      codigo: item.codigo,
+      categoria: item.categoria,
+      ubicacion: item.ubicacion,
+      responsable: item.responsable_nombre,
+      estado: item.estado,
+      stock: item.stock
+    });
+    setImageViewerOpen(true);
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -489,7 +487,57 @@ useEffect(() => {
     return originalUrl;
   };
 
-  // ======================== NUEVA FUNCIÓN GENERAR PDF BLOB ========================
+  // ======================== FUNCIÓN PARA SUBIR IMAGEN (Actualizada) ========================
+  const handleImageUpload = async (file: File) => {
+    setUploadingImage(true);
+    try {
+      let token = await getValidAccessToken();
+      if (!token) {
+        addToast('Conecta Google Drive primero', 'warning');
+        connectToDrive();
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+      if (adminProfile?.id) formData.append('userId', adminProfile.id);
+
+      token = await getValidAccessToken();
+      const res = await fetch('/api/upload', { 
+        method: 'POST', 
+        body: formData,
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (res.status === 401) {
+        addToast('Token expirado, reconecta Google Drive', 'warning');
+        setDriveConnected(false);
+        connectToDrive();
+        return;
+      }
+      if (!res.ok) throw new Error('Error al subir imagen');
+
+      const data = await res.json();
+      setFormData(prev => ({ ...prev, imagen_url: data.url }));
+      addToast('Imagen subida a Google Drive correctamente', 'success');
+      setDriveConnected(true);
+    } catch (err) {
+      console.error(err);
+      addToast('Error al subir imagen. Intenta vincular desde Drive manualmente.', 'error');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // Versión legacy para input file (web)
+  const handleImageUploadWrapper = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleImageUpload(file);
+  };
+
   const generatePdfBlob = async (htmlContent: string): Promise<Blob> => {
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
@@ -543,7 +591,6 @@ useEffect(() => {
     return pdf.output('blob');
   };
 
-  // ======================== NUEVA VERSIÓN DE savePdfToDrive (recibe blob) ========================
   const savePdfToDrive = async (pdfBlob: Blob, fileName: string) => {
     if (uploadingPdf) return;
     setUploadingPdf(true);
@@ -588,7 +635,6 @@ useEffect(() => {
     router.push('/login');
   };
 
-  // ======================== REPORTE GENERAL DE INVENTARIO ========================
   const handlePrintInventory = async () => {
     const activos = items.filter(i => i.tipo_contable === 'Activo');
     const pasivos = items.filter(i => i.tipo_contable === 'Pasivo');
@@ -613,7 +659,7 @@ useEffect(() => {
     const totalPasivos = pasivos.length;
     const totalPatrimonio = patrimonio.length;
 
-    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>INV-CORE | Reporte General de Inventario</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Roboto,sans-serif;background:#f4f7fc;padding:30px 20px;font-size:13px;color:#1e293b}.report-container{max-width:1200px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 35px -10px rgba(0,0,0,0.1);overflow:hidden}.header{background:linear-gradient(135deg,#2D1B69 0%,#3d2a8a 100%);color:white;padding:30px 35px;text-align:center}.logo{font-size:32px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px}.logo span{color:#FFD700}.subtitle{font-size:12px;opacity:0.8;letter-spacing:1px}.fecha{text-align:right;font-size:11px;color:#94a3b8;padding:15px 30px;background:#f8fafc;border-bottom:1px solid #e2e8f0}.stats{display:flex;justify-content:space-around;padding:20px 30px;background:#f1f5f9;gap:15px;flex-wrap:wrap}.stat-card{background:white;border-radius:16px;padding:12px 24px;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,0.05);flex:1;min-width:100px}.stat-number{font-size:28px;font-weight:800;color:#1e293b}.stat-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#475569;margin-top:4px}h2{font-size:18px;margin:25px 30px 15px 30px;padding-left:12px;border-left:5px solid #FFD700;color:#0f172a;font-weight:700}.table-wrapper{overflow-x:auto;margin:0 25px 30px 25px;border-radius:16px;border:1px solid #e2e8f0;background:white}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f5f9;padding:12px 8px;text-align:left;font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px;color:#334155;border-bottom:1px solid #cbd5e1}td{vertical-align:top}.footer{text-align:center;padding:20px 30px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#64748b}</style></head><body><div class="report-container"><div class="header"><div class="logo">INV<span>-CORE</span></div><div class="subtitle">Sistema de Gestión de Inventarios</div></div><div class="fecha">Generado: ${now.toLocaleString('es-EC')}</div><div class="stats"><div class="stat-card"><div class="stat-number">${totalActivos}</div><div class="stat-label">Activos</div></div><div class="stat-card"><div class="stat-number">${totalPasivos}</div><div class="stat-label">Pasivos</div></div><div class="stat-card"><div class="stat-number">${totalPatrimonio}</div><div class="stat-label">Patrimonio</div></div><div class="stat-card"><div class="stat-number">${totalItems}</div><div class="stat-label">Total Ítems</div></div></div><h2>📦 ACTIVOS</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(activos)}</tbody></table></div><h2>📋 PASIVOS</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(pasivos)}</tbody></table></div><h2>🏛️ PATRIMONIO</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(patrimonio)}</tbody></table></div><div class="footer">Documento generado automáticamente por INV-CORE • Todos los derechos reservados</div></div></body></html>`;
+    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>INV-CORE | Reporte General de Inventario</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Roboto,sans-serif;background:#f4f7fc;padding:30px 20px;font-size:13px;color:#1e293b}.report-container{max-width:1200px;margin:0 auto;background:white;border-radius:20px;box-shadow:0 20px 35px -10px rgba(0,0,0,0.1);overflow:hidden}.header{background:linear-gradient(135deg,#2D1B69 0%,#3d2a8a 100%);color:white;padding:30px 35px;text-align:center}.logo{font-size:32px;font-weight:800;letter-spacing:-0.5px;margin-bottom:6px}.logo span{color:#FFD700}.subtitle{font-size:12px;opacity:0.8;letter-spacing:1px}.fecha{text-align:right;font-size:11px;color:#94a3b8;padding:15px 30px;background:#f8fafc;border-bottom:1px solid #e2e8f0}.stats{display:flex;justify-content:space-around;padding:20px 30px;background:#f1f5f9;gap:15px;flex-wrap:wrap}.stat-card{background:white;border-radius:16px;padding:12px 24px;text-align:center;box-shadow:0 2px 5px rgba(0,0,0,0.05);flex:1;min-width:100px}.stat-number{font-size:28px;font-weight:800;color:#1e293b}.stat-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#475569;margin-top:4px}h2{font-size:18px;margin:25px 30px 15px 30px;padding-left:12px;border-left:5px solid #FFD700;color:#0f172a;font-weight:700}.table-wrapper{overflow-x:auto;margin:0 25px 30px 25px;border-radius:16px;border:1px solid #e2e8f0;background:white}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f1f5f9;padding:12px 8px;text-align:left;font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:0.5px;color:#334155;border-bottom:1px solid #cbd5e1}td{vertical-align:top}.footer{text-align:center;padding:20px 30px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#64748b}</style></head><body><div class="report-container"><div class="header"><div class="logo">INV<span>-CORE</span></div><div class="subtitle">Sistema de Gestión de Inventarios</div></div><div class="fecha">Generado: ${now.toLocaleString('es-EC')}</div><div class="stats"><div class="stat-card"><div class="stat-number">${totalActivos}</div><div class="stat-label">Activos</div></div><div class="stat-card"><div class="stat-number">${totalPasivos}</div><div class="stat-label">Pasivos</div></div><div class="stat-card"><div class="stat-number">${totalPatrimonio}</div><div class="stat-label">Patrimonio</div></div><div class="stat-card"><div class="stat-number">${totalItems}</div><div class="stat-label">Total Ítems</div></div></div><h2>📦 ACTIVOS</h2><div class="table-wrapper"><tr><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(activos)}</tbody></table></div><h2>📋 PASIVOS</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(pasivos)}</tbody></table></div><h2>🏛️ PATRIMONIO</h2><div class="table-wrapper"><table><thead><tr><th>CÓDIGO</th><th>DESCRIPCIÓN</th><th style="text-align:center;">STOCK</th><th>RESPONSABLE</th><th>UBICACIÓN</th></tr></thead><tbody>${renderTableRows(patrimonio)}</tbody></table></div><div class="footer">Documento generado automáticamente por INV-CORE • Todos los derechos reservados</div></div></body></html>`;
 
     try {
       setUploadingPdf(true);
@@ -652,7 +698,6 @@ useEffect(() => {
     }
   };
 
-  // ======================== ACTA DE ENTREGA ========================
   const handlePrintActa = async () => {
     if (!printConfig.responsable_filtro) {
       addToast('Selecciona un responsable en el filtro', 'warning');
@@ -668,7 +713,7 @@ useEffect(() => {
     const fechaActa = printConfig.fecha || new Date().toLocaleDateString('es-EC');
 
     const renderTableRows = itemsFiltrados.map(i => `
-      <tr>
+      <table>
         <td style="border: 1px solid #000; padding: 8px 6px; text-align: center; vertical-align: middle;">
           ${i.imagen_url ? `<img src="${getProxyImageUrl(i.imagen_url)}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px; display: block; margin: 0 auto;" />` : `<div style="width: 60px; height: 60px; background: #f0f0f0; border-radius: 6px; margin: 0 auto;"></div>`}
         </td>
@@ -739,49 +784,49 @@ useEffect(() => {
   };
 
   const categoriasData = () => {
-  const counts: Record<string, number> = {};
-  items.forEach(item => {
-    const cat = item.categoria || 'Sin categoría';
-    counts[cat] = (counts[cat] || 0) + 1;
-  });
-  return Object.entries(counts)
-    .map(([name, value]) => ({ 
-      name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
-      value 
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, isMobile ? 4 : 5);
-};
+    const counts: Record<string, number> = {};
+    items.forEach(item => {
+      const cat = item.categoria || 'Sin categoría';
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, isMobile ? 4 : 5);
+  };
 
-const responsablesData = () => {
-  const counts: Record<string, number> = {};
-  items.forEach(item => {
-    const resp = item.responsable_nombre || 'Sin responsable';
-    counts[resp] = (counts[resp] || 0) + 1;
-  });
-  return Object.entries(counts)
-    .map(([name, value]) => ({ 
-      name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
-      value 
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, isMobile ? 4 : 5);
-};
+  const responsablesData = () => {
+    const counts: Record<string, number> = {};
+    items.forEach(item => {
+      const resp = item.responsable_nombre || 'Sin responsable';
+      counts[resp] = (counts[resp] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, isMobile ? 4 : 5);
+  };
 
-const ubicacionesData = () => {
-  const counts: Record<string, number> = {};
-  items.forEach(item => {
-    const ubi = item.ubicacion || 'Sin ubicación';
-    counts[ubi] = (counts[ubi] || 0) + 1;
-  });
-  return Object.entries(counts)
-    .map(([name, value]) => ({ 
-      name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
-      value 
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, isMobile ? 4 : 5);
-};
+  const ubicacionesData = () => {
+    const counts: Record<string, number> = {};
+    items.forEach(item => {
+      const ubi = item.ubicacion || 'Sin ubicación';
+      counts[ubi] = (counts[ubi] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ 
+        name: name.length > (isMobile ? 15 : 20) ? name.substring(0, (isMobile ? 12 : 18)) + '…' : name, 
+        value 
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, isMobile ? 4 : 5);
+  };
 
   const handleDeleteItem = async (itemId: string, itemName: string) => {
     showConfirm('Eliminar artículo', `¿Estás seguro de eliminar "${itemName}"? Esta acción no se puede deshacer.`, async () => {
@@ -908,52 +953,6 @@ const ubicacionesData = () => {
       addToast('Ubicación registrada', 'success');
     } else {
       addToast('Error: ' + error.message, 'error');
-    }
-  };
-
-  const handleImageUploadWrapper = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploadingImage(true);
-    try {
-      let token = await getValidAccessToken();
-      if (!token) {
-        addToast('Conecta Google Drive primero', 'warning');
-        connectToDrive();
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append('file', file);
-      if (adminProfile?.id) formData.append('userId', adminProfile.id);
-
-      token = await getValidAccessToken();
-      const res = await fetch('/api/upload', { 
-        method: 'POST', 
-        body: formData,
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (res.status === 401) {
-        addToast('Token expirado, reconecta Google Drive', 'warning');
-        setDriveConnected(false);
-        connectToDrive();
-        return;
-      }
-      if (!res.ok) throw new Error('Error al subir imagen');
-
-      const data = await res.json();
-      setFormData(prev => ({ ...prev, imagen_url: data.url }));
-      addToast('Imagen subida a Google Drive correctamente', 'success');
-      setDriveConnected(true);
-    } catch (err) {
-      console.error(err);
-      addToast('Error al subir imagen. Intenta vincular desde Drive manualmente.', 'error');
-    } finally {
-      setUploadingImage(false);
     }
   };
 
@@ -1093,10 +1092,9 @@ const ubicacionesData = () => {
               </div>
             </header>
 
-           {/* PANEL */}
+            {/* PANEL - El código del panel se mantiene igual */}
             {activeTab === 'Panel' && (
               <div className="space-y-6">
-                {/* Tarjetas de estadísticas */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
@@ -1112,7 +1110,7 @@ const ubicacionesData = () => {
                         transition={{ duration: 0.3, delay: 0.2 }}
                         className="text-2xl md:text-4xl font-black font-mono"
                       >
-                        {countedActivos}  {/* ← CAMBIADO: usa countedActivos */}
+                        {countedActivos}
                       </motion.h3>
                     </div>
                     <div className="opacity-20 scale-[1.5] md:scale-[2]"><Landmark /></div>
@@ -1132,7 +1130,7 @@ const ubicacionesData = () => {
                         transition={{ duration: 0.3, delay: 0.3 }}
                         className="text-2xl md:text-4xl font-black font-mono"
                       >
-                        {countedPasivos}  {/* ← CAMBIADO: usa countedPasivos */}
+                        {countedPasivos}
                       </motion.h3>
                     </div>
                     <div className="opacity-20 scale-[1.5] md:scale-[2]"><Receipt /></div>
@@ -1152,16 +1150,14 @@ const ubicacionesData = () => {
                         transition={{ duration: 0.3, delay: 0.4 }}
                         className="text-2xl md:text-4xl font-black font-mono"
                       >
-                        {countedUsuarios}  {/* ← CAMBIADO: usa countedUsuarios */}
+                        {countedUsuarios}
                       </motion.h3>
                     </div>
                     <div className="opacity-20 scale-[1.5] md:scale-[2]"><Users /></div>
                   </motion.div>
                 </div>
 
-                {/* Gráficos - Responsive con animaciones */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-                  
                   {/* Gráfico de Tipo Contable */}
                   <motion.div 
                     initial={{ opacity: 0, y: 30 }}
@@ -1190,7 +1186,6 @@ const ubicacionesData = () => {
                                 return `${name}: ${(pct * 100).toFixed(0)}%`;
                               }}
                               fontSize={isMobile ? 10 : 12}
-                              // Animaciones
                               animationBegin={400}
                               animationDuration={800}
                               animationEasing="ease-out"
@@ -1200,7 +1195,6 @@ const ubicacionesData = () => {
                                 <Cell 
                                   key={`cell-${idx}`} 
                                   fill={entry.color}
-                                  // Animación de entrada por sector
                                   style={{ animation: `fadeIn 0.5s ease-out ${idx * 0.1}s both` }}
                                 />
                               ))}
@@ -1262,7 +1256,6 @@ const ubicacionesData = () => {
                               dataKey="value" 
                               fill="#2D1B69" 
                               radius={[0, 4, 4, 0]}
-                              // Animaciones
                               animationBegin={500}
                               animationDuration={800}
                               animationEasing="ease-out"
@@ -1386,13 +1379,14 @@ const ubicacionesData = () => {
                 </div>
               </div>
             )}
-            {/* INVENTARIO - Versión Desktop (Tabla) */}
+
+            {/* INVENTARIO - Versión Desktop - MODIFICADA CON CÁMARA */}
             {activeTab === 'Inventario' && !isMobile && (
               <div className="bg-white rounded-3xl shadow-sm overflow-hidden border border-slate-100">
                 <div className="p-6 flex flex-wrap gap-4 justify-between bg-slate-50/50">
                   <div className="relative flex-1 min-w-[200px]">
                     <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
-                    <input type="text" placeholder="Buscar por nombre, código, responsable, ubicación o fecha..." className="w-full pl-12 pr-4 py-3.5 border-none bg-white rounded-xl text-sm shadow-sm" onChange={e => setSearchTerm(e.target.value)} />
+                    <input type="text" placeholder="Buscar por nombre, código, responsable..." className="w-full pl-12 pr-4 py-3.5 border-none bg-white rounded-xl text-sm shadow-sm" onChange={e => setSearchTerm(e.target.value)} />
                   </div>
                   <div className="flex gap-2 flex-wrap">
                     <button onClick={handlePrintInventory} disabled={uploadingPdf} className="bg-slate-200 text-slate-700 px-5 py-3.5 rounded-xl text-xs font-bold uppercase flex items-center gap-2">
@@ -1410,16 +1404,12 @@ const ubicacionesData = () => {
                       <tr><th className="p-5 text-center">Imagen</th><th className="p-5">Código</th><th className="p-5">Artículo</th><th className="p-5">Responsable</th><th className="p-5">Ubicación</th><th className="p-5 text-center">Stock</th><th className="p-5">Fecha Adq.</th><th className="p-5 text-right">Acciones</th></tr>
                     </thead>
                     <tbody className="text-sm divide-y divide-slate-100">
-                      {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return true; const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; const fechaOriginal = i.fecha_adquisicion || ''; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); }).map((item, idx) => {
-                        const imageIndex = items.filter(i => i.imagen_url).findIndex(i => i.id === item.id);
+                      {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return true; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term)); }).map((item) => {
                         return (
                           <tr key={item.id} className="hover:bg-slate-50/80">
                             <td className="p-4">
                               {item.imagen_url ? (
-                                <button
-                                  onClick={() => openImageViewer(item)}
-                                  className="group relative w-12 h-12 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer"
-                                >
+                                <button onClick={() => openImageViewer(item)} className="group relative w-12 h-12 rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer">
                                   <img src={getProxyImageUrl(item.imagen_url)} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" alt={item.nombre} />
                                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
                                     <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -1447,102 +1437,138 @@ const ubicacionesData = () => {
               </div>
             )}
 
-            {/* INVENTARIO - Versión Móvil (Tarjetas) */}
-              {activeTab === 'Inventario' && isMobile && (
-                <div className="space-y-4 p-4">
-                  {/* Barra de búsqueda y botones */}
-                  <div className="flex flex-col gap-3 mb-4 sticky top-0 bg-slate-50 z-10 p-3 rounded-xl">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                      <input 
-                        type="text" 
-                        placeholder="Buscar por nombre, código, responsable..." 
-                        className="w-full pl-9 pr-3 py-2 border-none bg-white rounded-xl text-sm shadow-sm" 
-                        onChange={e => setSearchTerm(e.target.value)} 
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={handlePrintInventory} 
-                        disabled={uploadingPdf} 
-                        className="flex-1 bg-slate-200 text-slate-700 py-2.5 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2"
-                      >
-                        {uploadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
-                        {uploadingPdf ? 'Generando...' : 'Reporte General'}
-                      </button>
-                      <button 
-                        onClick={() => { setFormData({ ...formData, id: null, nombre: '', codigo: '', imagen_url: '', observaciones: '' }); setShowModal(true); }} 
-                        className="flex-1 bg-[#2D1B69] text-white py-2.5 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2"
-                      >
-                        <Plus size={14} /> Nuevo Artículo
-                      </button>
-                    </div>
+            {/* INVENTARIO - Versión Móvil Modificada */}
+            {activeTab === 'Inventario' && isMobile && (
+              <div className="space-y-4 p-4">
+                <div className="flex flex-col gap-3 mb-4 sticky top-0 bg-slate-50 z-10 p-3 rounded-xl">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                    <input type="text" placeholder="Buscar..." className="w-full pl-9 pr-3 py-2 border-none bg-white rounded-xl text-sm shadow-sm" onChange={e => setSearchTerm(e.target.value)} />
                   </div>
-                  
-                  {/* Lista de tarjetas */}
-                  {items.filter(i => { 
-                    const term = searchTerm.toLowerCase().trim(); 
-                    if (term === '') return true; 
-                    const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; 
-                    const fechaOriginal = i.fecha_adquisicion || ''; 
-                    return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); 
-                  }).map((item) => {
-                    return (
-                      <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                        <div className="flex p-4 gap-4">
-                          <button
-                            onClick={() => item.imagen_url && openImageViewer(item)}
-                            className="w-20 h-20 rounded-xl overflow-hidden bg-slate-50 flex-shrink-0 shadow-sm hover:shadow-md transition-all"
-                          >
-                            {item.imagen_url ? (
-                              <img src={getProxyImageUrl(item.imagen_url)} className="w-full h-full object-cover" alt={item.nombre} />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <Camera size={24} className="text-slate-300" />
-                              </div>
-                            )}
-                          </button>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <h4 className="font-bold text-slate-800 text-sm line-clamp-2">{item.nombre}</h4>
-                                <p className="text-[10px] text-indigo-600 font-mono mt-1">{item.codigo}</p>
-                              </div>
-                              <span className="text-xs font-black text-[#2D1B69] bg-[#2D1B69]/10 px-2 py-1 rounded-lg">{item.stock}</span>
+                  <div className="flex gap-2">
+                    <button onClick={handlePrintInventory} disabled={uploadingPdf} className="flex-1 bg-slate-200 text-slate-700 py-2.5 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2">
+                      {uploadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+                      {uploadingPdf ? 'Generando...' : 'Reporte General'}
+                    </button>
+                    <button onClick={() => { setFormData({ ...formData, id: null, nombre: '', codigo: '', imagen_url: '', observaciones: '' }); setShowModal(true); }} className="flex-1 bg-[#2D1B69] text-white py-2.5 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-2">
+                      <Plus size={14} /> Nuevo Artículo
+                    </button>
+                  </div>
+                </div>
+                {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return true; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term)); }).map((item) => {
+                  return (
+                    <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                      <div className="flex p-4 gap-4">
+                        <button onClick={() => item.imagen_url && openImageViewer(item)} className="w-20 h-20 rounded-xl overflow-hidden bg-slate-50 flex-shrink-0 shadow-sm hover:shadow-md transition-all">
+                          {item.imagen_url ? (
+                            <img src={getProxyImageUrl(item.imagen_url)} className="w-full h-full object-cover" alt={item.nombre} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Camera size={24} className="text-slate-300" />
                             </div>
-                            <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
-                              <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.categoria}</span>
-                              <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.ubicacion}</span>
-                              <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.responsable_nombre || 'Sin responsable'}</span>
+                          )}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h4 className="font-bold text-slate-800 text-sm line-clamp-2">{item.nombre}</h4>
+                              <p className="text-[10px] text-indigo-600 font-mono mt-1">{item.codigo}</p>
                             </div>
-                            <div className="mt-3 flex gap-2">
-                              <button onClick={() => { setFormData(item); setShowModal(true); }} className="flex-1 bg-[#2D1B69]/10 text-[#2D1B69] py-2 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1">
-                                <Edit3 size={12} /> Editar
-                              </button>
-                              <button onClick={() => handleDeleteItem(item.id, item.nombre)} className="flex-1 bg-red-50 text-red-600 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1">
-                                <Trash2 size={12} /> Eliminar
-                              </button>
-                            </div>
+                            <span className="text-xs font-black text-[#2D1B69] bg-[#2D1B69]/10 px-2 py-1 rounded-lg">{item.stock}</span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.categoria}</span>
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.ubicacion}</span>
+                            <span className="bg-slate-100 px-2 py-1 rounded-lg">{item.responsable_nombre || 'Sin responsable'}</span>
+                          </div>
+                          <div className="mt-3 flex gap-2">
+                            <button onClick={() => { setFormData(item); setShowModal(true); }} className="flex-1 bg-[#2D1B69]/10 text-[#2D1B69] py-2 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1">
+                              <Edit3 size={12} /> Editar
+                            </button>
+                            <button onClick={() => handleDeleteItem(item.id, item.nombre)} className="flex-1 bg-red-50 text-red-600 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1">
+                              <Trash2 size={12} /> Eliminar
+                            </button>
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-                  
-                  {/* Mensaje si no hay resultados */}
-                  {items.filter(i => { 
-                    const term = searchTerm.toLowerCase().trim(); 
-                    if (term === '') return false; 
-                    const fechaStr = i.fecha_adquisicion ? new Date(i.fecha_adquisicion).toLocaleDateString('es-EC') : ''; 
-                    const fechaOriginal = i.fecha_adquisicion || ''; 
-                    return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term) || fechaStr.toLowerCase().includes(term) || fechaOriginal.includes(term)); 
-                  }).length === 0 && searchTerm && (
-                    <div className="text-center py-8">
-                      <p className="text-slate-400 text-sm">No se encontraron resultados para "{searchTerm}"</p>
                     </div>
-                  )}
+                  );
+                })}
+                {items.filter(i => { const term = searchTerm.toLowerCase().trim(); if (term === '') return false; return (i.nombre?.toLowerCase().includes(term) || i.codigo?.toLowerCase().includes(term) || i.responsable_nombre?.toLowerCase().includes(term) || i.ubicacion?.toLowerCase().includes(term)); }).length === 0 && searchTerm && (
+                  <div className="text-center py-8">
+                    <p className="text-slate-400 text-sm">No se encontraron resultados para "{searchTerm}"</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* MODAL DE ARTÍCULO CON CÁMARA */}
+            {showModal && (
+              <div className="fixed inset-0 bg-[#2D1B69]/80 backdrop-blur-md z-200 flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+                  <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100">
+                    <h3 className="text-[#2D1B69] font-black text-xl uppercase">Ficha Técnica de Artículo</h3>
+                    <button onClick={() => setShowModal(false)} className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full"><X size={18} /></button>
+                  </div>
+                  <form onSubmit={handleSaveItemWrapper} className="p-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+                      {/* Sección de imagen con soporte para cámara */}
+                      <div className="space-y-3 lg:col-span-1">
+                        <label className="text-[11px] font-black uppercase text-slate-500 block">Imagen del Artículo</label>
+                        <div className="aspect-square w-full bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center relative overflow-hidden group">
+                          {formData.imagen_url ? (
+                            <>
+                              <img src={getProxyImageUrl(formData.imagen_url)} className="w-full h-full object-cover" />
+                              <button type="button" onClick={() => setFormData({ ...formData, imagen_url: "" })} className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full">
+                                <X size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center gap-3 p-4 w-full">
+                              <CameraUpload 
+                                onImageCaptured={async (imageUrl, file) => {
+                                  setFormData(prev => ({ ...prev, imagen_url: imageUrl }));
+                                  await handleImageUpload(file);
+                                }}
+                                disabled={uploadingImage}
+                                buttonText="Tomar Foto"
+                              />
+                              <button type="button" onClick={handleDriveLink} className="text-[10px] font-bold text-indigo-500 hover:underline">
+                                o vincular desde Drive
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {uploadingImage && <p className="text-center text-xs text-blue-500 animate-pulse">Subiendo imagen a Google Drive...</p>}
+                      </div>
+                      
+                      <div className="space-y-4 lg:col-span-2">
+                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Nombre del Artículo *</label><input required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} /></div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Estado *</label><select required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}><option>Bueno</option><option>Regular</option><option>Malo / Dañado</option></select></div>
+                          <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Ubicación *</label><select required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.ubicacion} onChange={(e) => setFormData({ ...formData, ubicacion: e.target.value })}><option value="">Seleccionar...</option>{ubicaciones.map(u => <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></div>
+                        </div>
+                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Responsable *</label>
+                          {!nuevoResponsableInput ? (
+                            <div className="flex gap-2"><select required className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.responsable_nombre} onChange={(e) => setFormData({ ...formData, responsable_nombre: e.target.value })}><option value="">Seleccionar responsable...</option>{responsablesExistentes.map(resp => <option key={resp} value={resp}>{resp}</option>)}</select><button type="button" onClick={() => { setNuevoResponsableInput(true); setFormData({ ...formData, responsable_nombre: "" }); }} className="bg-[#FFD700] text-[#2D1B69] px-4 rounded-xl text-xs font-bold">+ Nuevo</button></div>
+                          ) : (
+                            <div className="flex gap-2"><input required className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" placeholder="Escribir nuevo responsable..." value={formData.responsable_nombre} onChange={(e) => setFormData({ ...formData, responsable_nombre: e.target.value })} /><button type="button" onClick={() => { setNuevoResponsableInput(false); setFormData({ ...formData, responsable_nombre: "" }); }} className="bg-slate-200 text-slate-600 px-4 rounded-xl text-xs font-bold">Cancelar</button></div>
+                          )}
+                        </div>
+                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Código Interno</label><div className="flex gap-2"><input className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 font-mono text-sm text-[#2D1B69] font-bold" value={formData.codigo} onChange={(e) => setFormData({ ...formData, codigo: e.target.value })} placeholder="Automático" /><button type="button" onClick={() => { const prefijo = formData.tipo_contable === "Activo" ? "ACT" : "PAS"; setFormData({ ...formData, codigo: `${prefijo}-${Math.floor(1000 + Math.random() * 9000)}` }); }} className="bg-[#FFD700] text-[#2D1B69] px-4 rounded-xl flex items-center gap-1"><RefreshCcw size={14} /> Generar</button></div></div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Cantidad *</label><input type="number" required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold" value={formData.stock} onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) })} /></div><div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Categoría *</label><select required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.categoria} onChange={(e) => { const cat = e.target.value; setFormData({ ...formData, categoria: cat, tipo_contable: CATEGORIAS_CONFIG[cat] }); }}>{Object.keys(CATEGORIAS_CONFIG).map(c => <option key={c}>{c}</option>)}</select></div></div>
+                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Fecha de Adquisición</label><input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.fecha_adquisicion} onChange={(e) => setFormData({ ...formData, fecha_adquisicion: e.target.value })} /></div>
+                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Observaciones</label><textarea rows={3} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm resize-none" placeholder="Detalles físicos: color, material, dimensiones..." value={formData.observaciones} onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })} /></div>
+                      </div>
+                    </div>
+                    <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-3">
+                      <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-xl font-black uppercase tracking-wider">Cancelar</button>
+                      <button type="submit" className="flex-1 bg-[#2D1B69] text-[#FFD700] py-4 rounded-xl font-black uppercase tracking-wider shadow-lg">{formData.id ? "Actualizar Artículo" : "Registrar Artículo"}</button>
+                    </div>
+                  </form>
                 </div>
-              )}
+              </div>
+            )}
 
             {/* IMPRESIONES */}
             {activeTab === 'Impresiones' && (
@@ -1676,79 +1702,9 @@ const ubicacionesData = () => {
                 )}
               </div>
             )}
-
-            {/* MODALES */}
-            {showUbicacionModal && ubicacionEditando && (
-              <div className="fixed inset-0 bg-[#2D1B69]/60 backdrop-blur-md z-300 flex items-center justify-center p-4">
-                <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-md shadow-2xl">
-                  <div className="flex justify-between items-center mb-6"><h3 className="font-black text-[#2D1B69] uppercase italic">Editar Ubicación</h3><button onClick={() => setShowUbicacionModal(false)} className="p-2 bg-slate-100 rounded-full"><X size={20} /></button></div>
-                  <input className="w-full bg-slate-50 p-4 rounded-2xl text-sm font-bold uppercase" value={ubicacionEditando.nombre || ''} onChange={e => setUbicacionEditando({ ...ubicacionEditando, nombre: e.target.value })} />
-                  <div className="flex gap-4 mt-6"><button onClick={() => setShowUbicacionModal(false)} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-xs">Cancelar</button><button onClick={handleSaveUbicacionWrapper} className="flex-1 py-3 bg-[#2D1B69] text-[#FFD700] rounded-xl font-bold text-xs">Guardar Cambios</button></div>
-                </div>
-              </div>
-            )}
-
-            {showUserModal && (
-              <div className="fixed inset-0 bg-[#2D1B69]/60 backdrop-blur-md z-300 flex items-center justify-center p-4">
-                <div className="bg-white p-8 md:p-10 rounded-3xl w-full max-w-lg shadow-2xl">
-                  <div className="flex justify-between items-center mb-8"><div><h3 className="font-black text-[#2D1B69] uppercase italic text-xl">Editar Perfil</h3><p className="text-[10px] text-slate-400 font-bold uppercase">Actualización de credenciales</p></div><button onClick={() => setShowUserModal(false)} className="p-3 bg-slate-100 rounded-full"><X /></button></div>
-                  <form onSubmit={handleSaveUserWrapper} className="space-y-5">
-                    <div><label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-1 block">Nombre Completo</label><input className="w-full border-none bg-slate-50 p-4 rounded-2xl text-sm font-bold" value={userFormData.full_name} onChange={e => setUserFormData({ ...userFormData, full_name: e.target.value })} /></div>
-                    <div><label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-1 block">Cédula</label><input className="w-full border-none bg-slate-50 p-4 rounded-2xl text-sm font-mono font-bold" value={userFormData.cedula} onChange={e => setUserFormData({ ...userFormData, cedula: e.target.value })} /></div>
-                    <div><label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-1 block">Rol</label><select className="w-full border-none bg-slate-50 p-4 rounded-2xl text-sm font-bold" value={userFormData.role} onChange={e => setUserFormData({ ...userFormData, role: e.target.value })}><option value="admin">Administrador</option><option value="encargado">Encargado</option><option value="espectador">Espectador</option></select></div>
-                    <div><label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-1 block">Correo</label><input className="w-full border-none bg-slate-50 p-4 rounded-2xl text-sm font-bold" value={userFormData.email} onChange={e => setUserFormData({ ...userFormData, email: e.target.value })} /></div>
-                    <div><label className="text-[10px] font-black text-slate-400 uppercase ml-2 mb-1 block">Nueva Contraseña</label><div className="relative"><input type={showPassword ? "text" : "password"} className="w-full border-none bg-slate-50 p-4 rounded-2xl text-sm font-bold" placeholder="••••••••" value={userFormData.password} onChange={e => setUserFormData({ ...userFormData, password: e.target.value })} /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-4 text-slate-400">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></div>
-                    <div className="flex gap-4 pt-6"><button type="button" onClick={() => setShowUserModal(false)} className="flex-1 py-4 bg-slate-100 rounded-2xl font-black uppercase text-[10px]">Cancelar</button><button type="submit" className="flex-1 py-4 bg-[#2D1B69] text-[#FFD700] rounded-2xl font-black uppercase text-[10px] shadow-xl">Guardar Cambios</button></div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {showModal && (
-              <div className="fixed inset-0 bg-[#2D1B69]/80 backdrop-blur-md z-200 flex items-center justify-center p-4 overflow-y-auto">
-                <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
-                  <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100"><h3 className="text-[#2D1B69] font-black text-xl uppercase">Ficha Técnica de Artículo</h3><button onClick={() => setShowModal(false)} className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full"><X size={18} /></button></div>
-                  <form onSubmit={handleSaveItemWrapper} className="p-6">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-                      <div className="space-y-3 lg:col-span-1">
-                        <label className="text-[11px] font-black uppercase text-slate-500 block">Imagen del Artículo</label>
-                        <div className="aspect-square w-full bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center relative overflow-hidden group">
-                          {formData.imagen_url ? (
-                            <><img src={getProxyImageUrl(formData.imagen_url)} className="w-full h-full object-cover" /><button type="button" onClick={() => setFormData({ ...formData, imagen_url: "" })} className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full"><X size={14} /></button></>
-                          ) : (
-                            <div className="flex flex-col items-center gap-3 p-4"><Upload size={36} className="text-slate-300" /><label className="cursor-pointer bg-[#2D1B69] text-white px-4 py-2 rounded-lg text-xs font-bold">{uploadingImage ? <Loader2 size={14} className="animate-spin inline" /> : "Subir Imagen"}<input type="file" className="hidden" accept="image/*" onChange={handleImageUploadWrapper} disabled={uploadingImage} /></label><button type="button" onClick={handleDriveLink} className="text-[10px] font-bold text-indigo-500 hover:underline">o vincular desde Drive</button></div>
-                          )}
-                        </div>
-                        {uploadingImage && <p className="text-center text-xs text-blue-500 animate-pulse">Subiendo imagen a Google Drive...</p>}
-                      </div>
-                      <div className="space-y-4 lg:col-span-2">
-                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Nombre del Artículo *</label><input required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} /></div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Estado *</label><select required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}><option>Bueno</option><option>Regular</option><option>Malo / Dañado</option></select></div>
-                          <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Ubicación *</label><select required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.ubicacion} onChange={(e) => setFormData({ ...formData, ubicacion: e.target.value })}><option value="">Seleccionar...</option>{ubicaciones.map(u => <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></div>
-                        </div>
-                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Responsable *</label>
-                          {!nuevoResponsableInput ? (
-                            <div className="flex gap-2"><select required className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.responsable_nombre} onChange={(e) => setFormData({ ...formData, responsable_nombre: e.target.value })}><option value="">Seleccionar responsable...</option>{responsablesExistentes.map(resp => <option key={resp} value={resp}>{resp}</option>)}</select><button type="button" onClick={() => { setNuevoResponsableInput(true); setFormData({ ...formData, responsable_nombre: "" }); }} className="bg-[#FFD700] text-[#2D1B69] px-4 rounded-xl text-xs font-bold">+ Nuevo</button></div>
-                          ) : (
-                            <div className="flex gap-2"><input required className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" placeholder="Escribir nuevo responsable..." value={formData.responsable_nombre} onChange={(e) => setFormData({ ...formData, responsable_nombre: e.target.value })} /><button type="button" onClick={() => { setNuevoResponsableInput(false); setFormData({ ...formData, responsable_nombre: "" }); }} className="bg-slate-200 text-slate-600 px-4 rounded-xl text-xs font-bold">Cancelar</button></div>
-                          )}
-                        </div>
-                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Código Interno</label><div className="flex gap-2"><input className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 font-mono text-sm text-[#2D1B69] font-bold" value={formData.codigo} onChange={(e) => setFormData({ ...formData, codigo: e.target.value })} placeholder="Automático" /><button type="button" onClick={() => { const prefijo = formData.tipo_contable === "Activo" ? "ACT" : "PAS"; setFormData({ ...formData, codigo: `${prefijo}-${Math.floor(1000 + Math.random() * 9000)}` }); }} className="bg-[#FFD700] text-[#2D1B69] px-4 rounded-xl flex items-center gap-1"><RefreshCcw size={14} /> Generar</button></div></div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Cantidad *</label><input type="number" required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold" value={formData.stock} onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) })} /></div><div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Categoría *</label><select required className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.categoria} onChange={(e) => { const cat = e.target.value; setFormData({ ...formData, categoria: cat, tipo_contable: CATEGORIAS_CONFIG[cat] }); }}>{Object.keys(CATEGORIAS_CONFIG).map(c => <option key={c}>{c}</option>)}</select></div></div>
-                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Fecha de Adquisición</label><input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm" value={formData.fecha_adquisicion} onChange={(e) => setFormData({ ...formData, fecha_adquisicion: e.target.value })} /></div>
-                        <div><label className="text-[11px] font-black uppercase text-slate-500 block mb-1">Observaciones</label><textarea rows={3} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm resize-none" placeholder="Detalles físicos: color, material, dimensiones..." value={formData.observaciones} onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })} /></div>
-                      </div>
-                    </div>
-                    <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-3"><button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-xl font-black uppercase tracking-wider">Cancelar</button><button type="submit" className="flex-1 bg-[#2D1B69] text-[#FFD700] py-4 rounded-xl font-black uppercase tracking-wider shadow-lg">{formData.id ? "Actualizar Artículo" : "Registrar Artículo"}</button></div>
-                  </form>
-                </div>
-              </div>
-            )}
           </div>
         </main>
         
-        {/* Visor de imágenes - versión single */}
         <ImageViewer
           image={selectedImage}
           isOpen={imageViewerOpen}
